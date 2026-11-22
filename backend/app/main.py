@@ -1,9 +1,8 @@
 import asyncio
-import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from app.config import settings
+from app.config import settings, APP_START_TIME
 from app.db import engine, async_session
 from app.models import Base, User
 from app.auth.router import router as auth_router
@@ -16,15 +15,12 @@ from app.scheduler import scheduler
 from app.bot.bot import bot, dp
 from passlib.context import CryptContext
 
-# Время старта — используется в /diagnostics для проверки холодного старта
-APP_START_TIME = time.time()
-
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Создание таблиц (для продакшена используйте Alembic)
+    # Создание таблиц
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
