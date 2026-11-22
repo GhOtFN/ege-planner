@@ -4,7 +4,7 @@ from sqlalchemy import (
     String, Boolean, Integer, SmallInteger, Text, TIMESTAMP,
     ForeignKey, CheckConstraint, func, UUID, JSON
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
     pass
@@ -16,6 +16,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[str] = mapped_column(String, default="user")
     telegram_id: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
+    notification_offset: Mapped[int] = mapped_column(Integer, default=30) # За сколько минут уведомлять
     timezone: Mapped[str] = mapped_column(String, default="Europe/Moscow")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -37,7 +38,6 @@ class Session(Base):
     expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
-# ДОБАВЛЕНА МОДЕЛЬ ПРЕДМЕТА
 class Subject(Base):
     __tablename__ = "subjects"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -49,7 +49,7 @@ class Task(Base):
     __tablename__ = "tasks"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    subject_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("subjects.id"), nullable=True)
+    subject_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     start_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
