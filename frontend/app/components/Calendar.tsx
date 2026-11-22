@@ -4,6 +4,8 @@ import { format, startOfWeek, addDays, isSameDay } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Plus, Settings, Trash2 } from "lucide-react";
 import Link from "next/link";
+import { useAuth } from "../providers/AuthProvider";
+import { AdminShield } from "./AdminShield";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
@@ -23,6 +25,7 @@ const EGE_SUBJECTS = [
 ];
 
 export function Calendar() {
+  const { user } = useAuth();
   const [view, setView] = useState<"week">("week");
   const [currentDate, setCurrentDate] = useState(new Date());
   
@@ -39,7 +42,6 @@ export function Calendar() {
   const [newDate, setNewDate] = useState(format(new Date(), "yyyy-MM-dd'T'HH:mm"));
   const [newDuration, setNewDuration] = useState(60);
 
-  // Кастомные уведомления и подтверждения
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
@@ -49,7 +51,7 @@ export function Calendar() {
   };
 
   const fetchData = async () => {
-    const token = localStorage.getItem("access_token");
+    const token = sessionStorage.getItem("impersonation_token") || localStorage.getItem("access_token");
     if (!token) return;
     
     const [tasksRes, subjectsRes] = await Promise.all([
@@ -70,7 +72,7 @@ export function Calendar() {
   const handleOnboardingSubmit = async () => {
     if (selectedOnboarding.length === 0) return showToast("Выберите хотя бы один предмет", "error");
     setSavingOnboarding(true);
-    const token = localStorage.getItem("access_token");
+    const token = sessionStorage.getItem("impersonation_token") || localStorage.getItem("access_token");
     const toCreate = EGE_SUBJECTS.filter(s => selectedOnboarding.includes(s.name));
     
     const res = await fetch(`${API_URL}/subjects/bulk`, {
@@ -90,7 +92,7 @@ export function Calendar() {
 
   const handleSaveTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    const token = localStorage.getItem("access_token");
+    const token = sessionStorage.getItem("impersonation_token") || localStorage.getItem("access_token");
     const method = editingTaskId ? "PUT" : "POST";
     const url = editingTaskId ? `${API_URL}/tasks/${editingTaskId}` : `${API_URL}/tasks/`;
 
@@ -118,7 +120,7 @@ export function Calendar() {
 
   const handleDeleteTask = async () => {
     if (!confirmDelete) return;
-    const token = localStorage.getItem("access_token");
+    const token = sessionStorage.getItem("impersonation_token") || localStorage.getItem("access_token");
     await fetch(`${API_URL}/tasks/${confirmDelete}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
     setConfirmDelete(null);
     fetchData();
@@ -178,14 +180,12 @@ export function Calendar() {
 
   return (
     <div className="p-4 max-w-6xl mx-auto relative">
-      {/* Тост-уведомление */}
       {toast && (
         <div className={`fixed top-4 right-4 z-[100] px-6 py-3 rounded-lg shadow-lg text-white font-medium transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
           {toast.msg}
         </div>
       )}
 
-      {/* Окно подтверждения удаления */}
       {confirmDelete && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
           <div className="bg-white p-6 rounded-xl w-full max-w-sm text-center shadow-xl">
@@ -225,6 +225,7 @@ export function Calendar() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Мой план</h1>
         <div className="flex gap-3">
+          <AdminShield role={user?.role} />
           <Link href="/settings" className="flex items-center justify-center p-2 bg-gray-100 rounded-lg hover:bg-gray-200">
             <Settings size={20} className="text-gray-600" />
           </Link>
