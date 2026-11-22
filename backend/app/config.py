@@ -1,4 +1,8 @@
 from pydantic_settings import BaseSettings
+import time
+
+# Время старта сервера — вынесено сюда, чтобы избежать циклического импорта
+APP_START_TIME = time.time()
 
 class Settings(BaseSettings):
     database_url: str
