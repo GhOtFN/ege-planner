@@ -32,12 +32,12 @@ async def lifespan(app: FastAPI):
                 select(User).where(User.email == settings.bootstrap_superadmin_email)
             )
             if not res.scalar_one_or_none():
+                # Обрезаем пароль до 72 байт для безопасности bcrypt
+                safe_password = settings.bootstrap_superadmin_password[:72]
                 db.add(
                     User(
                         email=settings.bootstrap_superadmin_email,
-                        password_hash=pwd_context.hash(
-                            settings.bootstrap_superadmin_password
-                        ),
+                        password_hash=pwd_context.hash(safe_password),
                         role="superadmin",
                     )
                 )
