@@ -18,11 +18,23 @@ class TokenResponse(BaseModel):
 class RefreshRequest(BaseModel):
     refresh_token: str
 
+class UserUpdate(BaseModel):
+    notification_offset: int | None = None
+    telegram_id: int | None = None
+
+class SubjectCreate(BaseModel):
+    name: str
+    color: str
+
 class TaskCreate(BaseModel):
     title: str
-    description: str | None = None
     start_at: datetime
     duration_min: int = 60
-    priority: int = 2
     subject_id: UUID | None = None
-    recurrence_rule: str | None = None
+
+class TaskUpdate(BaseModel):
+    title: str | None = None
+    start_at: datetime | None = None
+    duration_min: int | None = None
+    subject_id: UUID | None = None
+    status: str | None = None
