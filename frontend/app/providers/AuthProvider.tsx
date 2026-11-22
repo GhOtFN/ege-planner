@@ -1,21 +1,34 @@
 "use client";
 import { createContext, useContext, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { AuthScreen } from "../components/AuthScreen";
 
 type User = { id: string; email: string; role: string };
 
-const AuthContext = createContext<{ user: User | null; setUser: (u: User | null) => void }>({
+const AuthContext = createContext<{
+  user: User | null;
+  setUser: (u: User | null) => void;
+}>({
   user: null,
   setUser: () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
 
+// Пути, доступные без авторизации
+const PUBLIC_PATHS = ["/diagnostics"];
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const isPublic = PUBLIC_PATHS.some(
+    (p) => pathname === p || pathname?.startsWith(p + "/")
+  );
+
   const [state, setState] = useState<"loading" | "auth" | "app">("loading");
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
+    if (isPublic) return; // на публичных страницах не проверяем авторизацию
     (async () => {
       const refresh = localStorage.getItem("refresh_token");
       if (!refresh) {
@@ -31,7 +44,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!res.ok) throw new Error();
         const data = await res.json();
         localStorage.setItem("refresh_token", data.refresh_token);
-        // В реальном приложении здесь нужно получить профиль через /auth/me
         setUser({ id: "me", email: "user@example.com", role: "user" });
         setState("app");
       } catch {
@@ -39,9 +51,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setState("auth");
       }
     })();
-  }, []);
+  }, [isPublic]);
 
-  if (state === "loading") return <div className="p-8 text-center">Загрузка...</div>;
+  if (isPublic) return <>{children}</>;
+  if (state === "loading")
+    return <div className="p-8 text-center">Загрузка...</div>;
   if (state === "auth") return <AuthScreen onSuccess={() => setState("app")} />;
-  return <AuthContext.Provider value={{ user, setUser }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, setUser }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
