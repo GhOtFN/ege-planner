@@ -21,6 +21,10 @@ class RefreshRequest(BaseModel):
 class UserUpdate(BaseModel):
     notification_offset: int | None = None
 
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str
+
 class TelegramLinkRequest(BaseModel):
     code: str
 
