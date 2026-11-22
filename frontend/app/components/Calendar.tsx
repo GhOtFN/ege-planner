@@ -4,6 +4,8 @@ import { format, startOfWeek, addDays, isSameDay, startOfMonth, endOfMonth, endO
 import { ru } from "date-fns/locale";
 import { Plus } from "lucide-react";
 
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+
 type Task = {
   id: string;
   title: string;
@@ -17,7 +19,6 @@ export function Calendar() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   
-  // Состояние для новой задачи
   const [newTitle, setNewTitle] = useState("");
   const [newDate, setNewDate] = useState(format(new Date(), "yyyy-MM-dd'T'HH:mm"));
 
@@ -25,7 +26,7 @@ export function Calendar() {
     const token = localStorage.getItem("access_token");
     if (!token) return;
     try {
-      const res = await fetch("/api/tasks/", {
+      const res = await fetch(`${API_URL}/tasks/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -47,7 +48,7 @@ export function Calendar() {
     if (!token) return;
 
     try {
-      const res = await fetch("/api/tasks/", {
+      const res = await fetch(`${API_URL}/tasks/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -63,16 +64,16 @@ export function Calendar() {
       if (res.ok) {
         setIsModalOpen(false);
         setNewTitle("");
-        fetchTasks(); // Обновляем список
+        fetchTasks();
       } else {
-        alert("Ошибка при создании задачи");
+        const errorText = await res.text();
+        alert(`Ошибка ${res.status}: ${errorText}`);
       }
-    } catch (e) {
-      alert("Ошибка сети");
+    } catch (e: any) {
+      alert("Ошибка сети: " + e.message);
     }
   };
 
-  // --- Отрисовка сеток ---
   const renderMonth = () => {
     const start = startOfWeek(startOfMonth(currentDate), { weekStartsOn: 1 });
     const end = endOfWeek(endOfMonth(currentDate), { weekStartsOn: 1 });
@@ -169,7 +170,6 @@ export function Calendar() {
         </button>
       </div>
 
-      {/* Навигация по датам */}
       <div className="flex items-center gap-4 mb-4">
         <button onClick={() => setCurrentDate(addDays(currentDate, view === "day" ? -1 : view === "week" ? -7 : -30))} className="px-3 py-1 border rounded hover:bg-gray-50">←</button>
         <span className="font-semibold text-lg">{format(currentDate, "LLLL yyyy", { locale: ru })}</span>
@@ -181,7 +181,6 @@ export function Calendar() {
       {view === "week" && renderWeek()}
       {view === "day" && renderDay()}
 
-      {/* Модалка добавления задачи */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <form onSubmit={handleAddTask} className="bg-white p-6 rounded-xl w-full max-w-sm space-y-4 shadow-xl">
