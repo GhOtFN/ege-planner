@@ -5,20 +5,19 @@ from passlib.context import CryptContext
 from datetime import datetime, timezone, timedelta
 from app.db import get_db
 from app.models import User, Session, TelegramLinkCode
-from app.schemas import UserRegister, UserLogin, TokenResponse, RefreshRequest, UserUpdate, TelegramLinkRequest
+from app.schemas import UserRegister, UserLogin, TokenResponse, RefreshRequest, UserUpdate, TelegramLinkRequest, PasswordChange
 from app.auth.jwt import create_access_token, create_refresh_token, decode_refresh
 from app.auth.deps import get_current_user
 from app.bot.bot import bot, send_notification
+from app.activity.utils import log_action
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 import hashlib
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-
 def hash_refresh(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
-
 
 @router.post("/register", response_model=TokenResponse)
 async def register(data: UserRegister, request: Request, db: AsyncSession = Depends(get_db)):
@@ -42,10 +41,12 @@ async def register(data: UserRegister, request: Request, db: AsyncSession = Depe
         expires_at=datetime.now(timezone.utc) + timedelta(days=30),
     )
     db.add(session)
+    
+    request.state.user_id = user.id
+    await log_action(request, db, "USER_REGISTER")
     await db.commit()
 
     return TokenResponse(access_token=access, refresh_token=refresh, user={"id": str(user.id), "email": user.email, "role": user.role})
-
 
 @router.post("/login", response_model=TokenResponse)
 async def login(data: UserLogin, request: Request, db: AsyncSession = Depends(get_db)):
@@ -66,10 +67,12 @@ async def login(data: UserLogin, request: Request, db: AsyncSession = Depends(ge
         expires_at=datetime.now(timezone.utc) + timedelta(days=30),
     )
     db.add(session)
+    
+    request.state.user_id = user.id
+    await log_action(request, db, "USER_LOGIN")
     await db.commit()
 
     return TokenResponse(access_token=access, refresh_token=refresh, user={"id": str(user.id), "email": user.email, "role": user.role})
-
 
 @router.post("/refresh")
 async def refresh_token(data: RefreshRequest, request: Request, db: AsyncSession = Depends(get_db)):
@@ -103,7 +106,6 @@ async def refresh_token(data: RefreshRequest, request: Request, db: AsyncSession
     access = create_access_token(str(session.user_id))
     return {"access_token": access, "refresh_token": new_refresh}
 
-
 @router.get("/me")
 async def me(current: User = Depends(get_current_user)):
     return {
@@ -115,42 +117,56 @@ async def me(current: User = Depends(get_current_user)):
         "timezone": current.timezone,
     }
 
-
 @router.patch("/me")
-async def update_me(data: UserUpdate, current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def update_me(data: UserUpdate, request: Request, current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if data.notification_offset is not None:
         current.notification_offset = data.notification_offset
+        await log_action(request, db, "SETTINGS_UPDATE", before_state={"notification_offset": current.notification_offset})
     await db.commit()
     return {"ok": True}
 
+@router.post("/change-password")
+async def change_password(data: PasswordChange, request: Request, current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not pwd_context.verify(data.old_password, current.password_hash):
+        raise HTTPException(400, "Неверный старый пароль")
+    if len(data.new_password) < 6:
+        raise HTTPException(400, "Новый пароль слишком короткий")
+    
+    current.password_hash = pwd_context.hash(data.new_password)
+    await log_action(request, db, "PASSWORD_CHANGE")
+    await db.commit()
+    return {"ok": True}
+
+@router.post("/unlink-telegram")
+async def unlink_telegram(request: Request, current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    old_id = current.telegram_id
+    current.telegram_id = None
+    await log_action(request, db, "TELEGRAM_UNLINK", before_state={"telegram_id": old_id})
+    await db.commit()
+    return {"ok": True}
 
 @router.post("/link-telegram")
-async def link_telegram(data: TelegramLinkRequest, current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    # Ищем код в базе
+async def link_telegram(data: TelegramLinkRequest, request: Request, current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(TelegramLinkCode).where(TelegramLinkCode.code == data.code))
     link_code = result.scalar_one_or_none()
     
     if not link_code:
         raise HTTPException(400, "Неверный или устаревший код")
     
-    # Проверяем, не привязан ли этот Telegram к другому аккаунту
     user_res = await db.execute(select(User).where(User.telegram_id == link_code.telegram_id))
     if user_res.scalar_one_or_none():
         raise HTTPException(400, "Этот Telegram уже привязан к другому аккаунту")
 
-    # Привязываем
     current.telegram_id = link_code.telegram_id
-    await db.delete(link_code) # Удаляем код, он одноразовый
+    await db.delete(link_code)
+    await log_action(request, db, "TELEGRAM_LINK")
     await db.commit()
-
     return {"ok": True, "telegram_id": current.telegram_id}
-
 
 @router.post("/test-telegram")
 async def test_telegram(current: User = Depends(get_current_user)):
     if not current.telegram_id:
         raise HTTPException(400, "Telegram не привязан")
-    
     try:
         if bot:
             try:
@@ -168,5 +184,4 @@ async def test_telegram(current: User = Depends(get_current_user)):
         raise
     except Exception as e:
         raise HTTPException(500, f"Ошибка отправки: {str(e)}")
-    
     return {"ok": True}
