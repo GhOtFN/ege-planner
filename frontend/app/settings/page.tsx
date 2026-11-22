@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { Trash2, Send, Link as LinkIcon, CheckCircle2 } from "lucide-react";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
-// Имя бота для ссылки (замените на свой, если он отличается, например, "ege_planner_bot")
 const BOT_NAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_NAME || "вашего_бота"; 
 
 export default function SettingsPage() {
@@ -26,8 +25,10 @@ export default function SettingsPage() {
     setTimeout(() => setToast(null), 4000);
   };
 
+  const getToken = () => sessionStorage.getItem("impersonation_token") || localStorage.getItem("access_token");
+
   const fetchSettings = async () => {
-    const token = localStorage.getItem("access_token");
+    const token = getToken();
     if (!token) return;
 
     const [meRes, subRes] = await Promise.all([
@@ -47,10 +48,9 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     setSaving(true);
-    const token = localStorage.getItem("access_token");
     await fetch(`${API_URL}/auth/me`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({ notification_offset: Number(offset) }),
     });
     showToast("Настройки сохранены");
@@ -60,10 +60,9 @@ export default function SettingsPage() {
   const handleLinkTelegram = async () => {
     if (!linkCode) return;
     setLinking(true);
-    const token = localStorage.getItem("access_token");
     const res = await fetch(`${API_URL}/auth/link-telegram`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({ code: linkCode })
     });
     
@@ -80,10 +79,9 @@ export default function SettingsPage() {
 
   const handleTestTelegram = async () => {
     setTesting(true);
-    const token = localStorage.getItem("access_token");
     const res = await fetch(`${API_URL}/auth/test-telegram`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${getToken()}` }
     });
     if (res.ok) showToast("Тестовое уведомление отправлено!");
     else {
@@ -95,10 +93,9 @@ export default function SettingsPage() {
 
   const handleAddSubject = async () => {
     if (!newSubjectName) return;
-    const token = localStorage.getItem("access_token");
     const res = await fetch(`${API_URL}/subjects/`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({ name: newSubjectName, color: "#6B7280" }),
     });
     
@@ -116,8 +113,7 @@ export default function SettingsPage() {
       title: "Удалить предмет?",
       msg: "Задачи по нему останутся, но потеряют свой цвет.",
       action: async () => {
-        const token = localStorage.getItem("access_token");
-        await fetch(`${API_URL}/subjects/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+        await fetch(`${API_URL}/subjects/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } });
         setConfirmModal(null);
         fetchSettings();
         showToast("Предмет удален");
@@ -132,6 +128,7 @@ export default function SettingsPage() {
       action: () => {
         localStorage.removeItem("access_token");
         localStorage.removeItem("refresh_token");
+        sessionStorage.removeItem("impersonation_token");
         router.push("/");
         window.location.reload();
       }
@@ -163,8 +160,6 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-bold mb-6">Настройки</h1>
         
         <div className="space-y-6">
-          
-          {/* Блок Telegram */}
           <div className="p-4 border rounded-xl bg-gray-50">
             <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
               <Send size={18} /> Уведомления в Telegram
