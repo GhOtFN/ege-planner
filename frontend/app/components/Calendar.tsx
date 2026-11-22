@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { format, startOfWeek, addDays, isSameDay, startOfMonth, endOfMonth, endOfWeek, eachDayOfInterval } from "date-fns";
 import { ru } from "date-fns/locale";
-import { Plus, Settings, Trash2, Edit2 } from "lucide-react";
+import { Plus, Settings, Trash2 } from "lucide-react";
 import Link from "next/link";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
@@ -29,13 +29,12 @@ export function Calendar() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   
-  // Онбординг (выбор предметов)
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [selectedOnboarding, setSelectedOnboarding] = useState<string[]>([]);
+  const [savingOnboarding, setSavingOnboarding] = useState(false);
   
-  // Модалка задачи
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [newTitle, setNewTitle] = useState("");
   const [newSubjectId, setNewSubjectId] = useState("");
   const [newDate, setNewDate] = useState(format(new Date(), "yyyy-MM-dd'T'HH:mm"));
   const [newDuration, setNewDuration] = useState(60);
@@ -53,7 +52,7 @@ export function Calendar() {
     if (subjectsRes.ok) {
       const subs = await subjectsRes.json();
       setSubjects(subs);
-      if (subs.length === 0) setShowOnboarding(true); // Если нет предметов - показываем онбординг
+      if (subs.length === 0) setShowOnboarding(true);
     }
   };
 
@@ -61,18 +60,26 @@ export function Calendar() {
     fetchData();
   }, []);
 
-  const handleAddSubjects = async () => {
+  const handleOnboardingSubmit = async () => {
+    if (selectedOnboarding.length === 0) return alert("Выберите хотя бы один предмет");
+    setSavingOnboarding(true);
     const token = localStorage.getItem("access_token");
-    // Добавляем базовый набор предметов
-    for (const sub of EGE_SUBJECTS) {
-      await fetch(`${API_URL}/subjects/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(sub)
-      });
+    
+    const toCreate = EGE_SUBJECTS.filter(s => selectedOnboarding.includes(s.name));
+    
+    const res = await fetch(`${API_URL}/subjects/bulk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(toCreate)
+    });
+    
+    if (res.ok) {
+      setShowOnboarding(false);
+      fetchData();
+    } else {
+      alert("Ошибка при сохранении предметов");
     }
-    setShowOnboarding(false);
-    fetchData();
+    setSavingOnboarding(false);
   };
 
   const handleSaveTask = async (e: React.FormEvent) => {
@@ -82,7 +89,7 @@ export function Calendar() {
     const url = editingTaskId ? `${API_URL}/tasks/${editingTaskId}` : `${API_URL}/tasks/`;
 
     const payload = {
-      title: newTitle || "Занятие",
+      title: subjects.find(s => s.id === newSubjectId)?.name || "Занятие",
       start_at: new Date(newDate).toISOString(),
       duration_min: newDuration,
       subject_id: newSubjectId || null
@@ -112,7 +119,6 @@ export function Calendar() {
 
   const openEditModal = (task: Task) => {
     setEditingTaskId(task.id);
-    setNewTitle(task.title);
     setNewSubjectId(task.subject_id || "");
     setNewDate(format(new Date(task.start_at), "yyyy-MM-dd'T'HH:mm"));
     setNewDuration(task.duration_min);
@@ -121,27 +127,18 @@ export function Calendar() {
 
   const openCreateModal = () => {
     setEditingTaskId(null);
-    setNewTitle("");
     setNewSubjectId(subjects[0]?.id || "");
     setNewDate(format(new Date(), "yyyy-MM-dd'T'HH:mm"));
     setNewDuration(60);
     setIsModalOpen(true);
   };
 
-  const getSubjectColor = (subId: string | null) => {
-    const sub = subjects.find(s => s.id === subId);
-    return sub ? sub.color : "#6B7280";
-  };
-
-  const getSubjectName = (subId: string | null) => {
-    const sub = subjects.find(s => s.id === subId);
-    return sub ? sub.name : "Без предмета";
-  };
+  const getSubjectColor = (subId: string | null) => subjects.find(s => s.id === subId)?.color || "#6B7280";
+  const getSubjectName = (subId: string | null) => subjects.find(s => s.id === subId)?.name || "Предмет";
 
   const renderWeek = () => {
     const start = startOfWeek(currentDate, { weekStartsOn: 1 });
     const days = Array.from({ length: 7 }).map((_, i) => addDays(start, i));
-
     return (
       <div className="grid grid-cols-7 gap-2 mt-4">
         {days.map((day, i) => {
@@ -154,12 +151,7 @@ export function Calendar() {
               </div>
               <div className="space-y-2">
                 {dayTasks.map(t => (
-                  <div 
-                    key={t.id} 
-                    onClick={() => openEditModal(t)}
-                    className="cursor-pointer text-sm bg-white border-l-4 p-2 rounded shadow-sm hover:shadow-md transition-shadow relative group"
-                    style={{ borderLeftColor: getSubjectColor(t.subject_id) }}
-                  >
+                  <div key={t.id} onClick={() => openEditModal(t)} className="cursor-pointer text-sm bg-white border-l-4 p-2 rounded shadow-sm hover:shadow-md relative group" style={{ borderLeftColor: getSubjectColor(t.subject_id) }}>
                     <div className="font-medium flex justify-between">
                       <span>{format(new Date(t.start_at), "HH:mm")}</span>
                       <button onClick={(e) => handleDeleteTask(e, t.id)} className="text-red-400 opacity-0 group-hover:opacity-100"><Trash2 size={14}/></button>
@@ -180,11 +172,27 @@ export function Calendar() {
     <div className="p-4 max-w-6xl mx-auto">
       {showOnboarding && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-8 max-w-md text-center">
-            <h2 className="text-2xl font-bold mb-4">Добро пожаловать!</h2>
-            <p className="text-gray-600 mb-6">Давайте настроим ваш планер. Мы добавим список стандартных предметов ЕГЭ, а вы сможете заниматься по ним.</p>
-            <button onClick={handleAddSubjects} className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700">
-              Выбрать предметы ЕГЭ
+          <div className="bg-white rounded-xl p-8 max-w-lg w-full">
+            <h2 className="text-2xl font-bold mb-2 text-center">Какие предметы вы сдаете?</h2>
+            <p className="text-gray-500 mb-6 text-center">Выберите предметы, чтобы мы добавили их в ваш планер.</p>
+            <div className="grid grid-cols-2 gap-3 mb-8">
+              {EGE_SUBJECTS.map(sub => (
+                <label key={sub.name} className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input 
+                    type="checkbox" 
+                    checked={selectedOnboarding.includes(sub.name)}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedOnboarding([...selectedOnboarding, sub.name]);
+                      else setSelectedOnboarding(selectedOnboarding.filter(n => n !== sub.name));
+                    }}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <span className="font-medium">{sub.name}</span>
+                </label>
+              ))}
+            </div>
+            <button onClick={handleOnboardingSubmit} disabled={savingOnboarding} className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50">
+              {savingOnboarding ? "Сохранение..." : "Сохранить и начать"}
             </button>
           </div>
         </div>
@@ -222,24 +230,20 @@ export function Calendar() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <form onSubmit={handleSaveTask} className="bg-white p-6 rounded-xl w-full max-w-sm space-y-4 shadow-xl">
             <h2 className="text-xl font-bold">{editingTaskId ? "Редактировать" : "Новое занятие"}</h2>
-            
             <div>
               <label className="text-sm text-gray-600">Предмет</label>
               <select value={newSubjectId} onChange={e => setNewSubjectId(e.target.value)} className="w-full border p-2 rounded-lg mt-1">
                 {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
-
             <div>
               <label className="text-sm text-gray-600">Начало</label>
               <input type="datetime-local" required value={newDate} onChange={e => setNewDate(e.target.value)} className="w-full border p-2 rounded-lg mt-1" />
             </div>
-
             <div>
               <label className="text-sm text-gray-600">Длительность (минут)</label>
               <input type="number" required value={newDuration} onChange={e => setNewDuration(Number(e.target.value))} className="w-full border p-2 rounded-lg mt-1" />
             </div>
-
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Отмена</button>
               <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg">Сохранить</button>
