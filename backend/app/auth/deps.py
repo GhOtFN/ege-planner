@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.models import User
 from app.auth.jwt import decode_access
-from uuid import UUID
 
 security = HTTPBearer(auto_error=False)
 
@@ -16,6 +15,7 @@ async def get_current_user(
     token = creds.credentials if creds else request.cookies.get("access_token")
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
+    
     payload = decode_access(token)
     if not payload:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
@@ -24,11 +24,9 @@ async def get_current_user(
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
     
-    # Сохраняем контекст в request.state
     request.state.user_id = user.id
     request.state.impersonator_id = payload.get("impersonator_id")
     
-    # Если это имперсонация, возвращаем целевого пользователя
     return user
 
 async def require_admin(current: User = Depends(get_current_user)) -> User:
@@ -42,6 +40,5 @@ async def require_superadmin(current: User = Depends(get_current_user)) -> User:
     return current
 
 async def forbid_impersonation(request: Request):
-    """Блокирует опасные операции в режиме имперсонации."""
     if getattr(request.state, "impersonator_id", None):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Action forbidden in impersonation mode")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Действие запрещено в режиме имперсонации")
