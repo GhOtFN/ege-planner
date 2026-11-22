@@ -1,32 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db import get_db
-from app.models import Task, User, ActivityEvent
-from app.schemas import TaskCreate
-from app.auth.deps import get_current_user, forbid_impersonation
 from uuid import UUID
+from app.db import get_db
+from app.models import Task, User, Reminder
+from app.schemas import TaskCreate, TaskUpdate
+from app.auth.deps import get_current_user, forbid_impersonation
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-
-async def log_event(db, actor_id, effective_id, action, entity_type, entity_id, before, after, ip, is_imp=False):
-    event = ActivityEvent(
-        actor_id=actor_id,
-        effective_user_id=effective_id,
-        action=action,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        before_state=before,
-        after_state=after,
-        is_impersonation=is_imp,
-        ip_address=ip,
-    )
-    db.add(event)
 
 @router.post("/")
 async def create_task(
     data: TaskCreate,
-    request: Request,
     current: User = Depends(get_current_user),
     _=Depends(forbid_impersonation),
     db: AsyncSession = Depends(get_db),
@@ -34,18 +19,20 @@ async def create_task(
     task = Task(
         user_id=current.id,
         title=data.title,
-        description=data.description,
         start_at=data.start_at,
         duration_min=data.duration_min,
-        priority=data.priority,
         subject_id=data.subject_id,
-        recurrence_rule=data.recurrence_rule,
     )
     db.add(task)
     await db.flush()
-    await log_event(db, current.id, current.id, "TASK_CREATE", "task", task.id,
-                    None, {"title": task.title, "start_at": str(task.start_at)},
-                    request.client.host if request.client else None)
+
+    # Создаем напоминание на основе настроек пользователя
+    reminder = Reminder(
+        task_id=task.id, 
+        offset_min=current.notification_offset,
+        channel="telegram"
+    )
+    db.add(reminder)
     await db.commit()
     return {"id": str(task.id)}
 
@@ -53,4 +40,38 @@ async def create_task(
 async def list_tasks(current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Task).where(Task.user_id == current.id).order_by(Task.start_at))
     tasks = result.scalars().all()
-    return [{"id": str(t.id), "title": t.title, "start_at": t.start_at.isoformat(), "status": t.status} for t in tasks]
+    return [{"id": str(t.id), "title": t.title, "start_at": t.start_at.isoformat(), "duration_min": t.duration_min, "subject_id": str(t.subject_id) if t.subject_id else None} for t in tasks]
+
+@router.put("/{task_id}")
+async def update_task(
+    task_id: UUID,
+    data: TaskUpdate,
+    current: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    task = await db.get(Task, task_id)
+    if not task or task.user_id != current.id:
+        raise HTTPException(404, "Task not found")
+    
+    if data.title is not None: task.title = data.title
+    if data.start_at is not None: task.start_at = data.start_at
+    if data.duration_min is not None: task.duration_min = data.duration_min
+    if data.subject_id is not None: task.subject_id = data.subject_id
+    if data.status is not None: task.status = data.status
+    
+    await db.commit()
+    return {"ok": True}
+
+@router.delete("/{task_id}")
+async def delete_task(
+    task_id: UUID,
+    current: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    task = await db.get(Task, task_id)
+    if not task or task.user_id != current.id:
+        raise HTTPException(404, "Task not found")
+    
+    await db.delete(task)
+    await db.commit()
+    return {"ok": True}
