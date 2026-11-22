@@ -1,25 +1,29 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Send } from "lucide-react";
+import { Trash2, Send, Link as LinkIcon, CheckCircle2 } from "lucide-react";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+// Имя бота для ссылки (замените на свой, если он отличается, например, "ege_planner_bot")
+const BOT_NAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_NAME || "вашего_бота"; 
 
 export default function SettingsPage() {
   const router = useRouter();
   const [offset, setOffset] = useState(30);
-  const [telegramId, setTelegramId] = useState("");
+  const [telegramId, setTelegramId] = useState<number | null>(null);
+  const [linkCode, setLinkCode] = useState("");
   const [subjects, setSubjects] = useState<any[]>([]);
   const [newSubjectName, setNewSubjectName] = useState("");
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [linking, setLinking] = useState(false);
 
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ title: string; msg: string; action: () => void } | null>(null);
 
   const showToast = (msg: string, type: "success" | "error" = "success") => {
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), 4000);
   };
 
   const fetchSettings = async () => {
@@ -34,7 +38,7 @@ export default function SettingsPage() {
     if (meRes.ok) {
       const me = await meRes.json();
       setOffset(me.notification_offset || 30);
-      setTelegramId(me.telegram_id ? String(me.telegram_id) : "");
+      setTelegramId(me.telegram_id || null);
     }
     if (subRes.ok) setSubjects(await subRes.json());
   };
@@ -47,10 +51,31 @@ export default function SettingsPage() {
     await fetch(`${API_URL}/auth/me`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ notification_offset: Number(offset), telegram_id: telegramId ? Number(telegramId) : null }),
+      body: JSON.stringify({ notification_offset: Number(offset) }),
     });
     showToast("Настройки сохранены");
     setSaving(false);
+  };
+
+  const handleLinkTelegram = async () => {
+    if (!linkCode) return;
+    setLinking(true);
+    const token = localStorage.getItem("access_token");
+    const res = await fetch(`${API_URL}/auth/link-telegram`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ code: linkCode })
+    });
+    
+    if (res.ok) {
+      showToast("Telegram успешно привязан!");
+      setLinkCode("");
+      fetchSettings();
+    } else {
+      const err = await res.json();
+      showToast(err.detail || "Ошибка привязки", "error");
+    }
+    setLinking(false);
   };
 
   const handleTestTelegram = async () => {
@@ -60,8 +85,11 @@ export default function SettingsPage() {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` }
     });
-    if (res.ok) showToast("Тестовое уведомление отправлено в Telegram!");
-    else showToast("Ошибка отправки. Проверьте ID и бота.", "error");
+    if (res.ok) showToast("Тестовое уведомление отправлено!");
+    else {
+      const err = await res.json();
+      showToast(err.detail || "Ошибка отправки", "error");
+    }
     setTesting(false);
   };
 
@@ -135,15 +163,38 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-bold mb-6">Настройки</h1>
         
         <div className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Ваш Telegram ID</label>
-            <div className="flex gap-2 mt-1">
-              <input type="text" value={telegramId} onChange={e => setTelegramId(e.target.value)} placeholder="Например: 123456789" className="w-full border p-2 rounded-lg" />
-              <button onClick={handleTestTelegram} disabled={testing || !telegramId} className="flex items-center gap-2 px-4 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 transition-colors">
-                <Send size={16} /> {testing ? "Отправка..." : "Тест"}
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 mt-1">Узнать ID можно у бота @userinfobot</p>
+          
+          {/* Блок Telegram */}
+          <div className="p-4 border rounded-xl bg-gray-50">
+            <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
+              <Send size={18} /> Уведомления в Telegram
+            </h3>
+            
+            {telegramId ? (
+              <div className="flex items-center justify-between bg-green-50 border border-green-200 text-green-800 p-3 rounded-lg mt-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 size={20} className="text-green-600"/>
+                  <span>Telegram успешно привязан (ID: {telegramId})</span>
+                </div>
+                <button onClick={handleTestTelegram} disabled={testing} className="px-3 py-1 bg-white border border-green-300 rounded text-sm hover:bg-green-100 transition-colors">
+                  {testing ? "Отправка..." : "Тест"}
+                </button>
+              </div>
+            ) : (
+              <div className="mt-3 space-y-3">
+                <p className="text-sm text-gray-600">
+                  1. Перейдите в бота <a href={`https://t.me/${BOT_NAME}`} target="_blank" className="text-blue-600 font-medium hover:underline">{BOT_NAME}</a> и нажмите <b>/start</b>.<br/>
+                  2. Скопируйте код, который пришлет бот.<br/>
+                  3. Вставьте его сюда:
+                </p>
+                <div className="flex gap-2">
+                  <input type="text" value={linkCode} onChange={e => setLinkCode(e.target.value)} placeholder="Например: 123456" className="w-full border p-2 rounded-lg" />
+                  <button onClick={handleLinkTelegram} disabled={linking || !linkCode} className="flex items-center gap-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                    <LinkIcon size={16} /> {linking ? "..." : "Привязать"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div>
@@ -156,7 +207,7 @@ export default function SettingsPage() {
               Выйти из аккаунта
             </button>
             <button onClick={handleSave} disabled={saving} className="px-6 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50 hover:bg-blue-700 transition-colors">
-              {saving ? "Сохранение..." : "Сохранить"}
+              {saving ? "Сохранение..." : "Сохранить настройки"}
             </button>
           </div>
         </div>
