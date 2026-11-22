@@ -20,7 +20,9 @@ class RefreshRequest(BaseModel):
 
 class UserUpdate(BaseModel):
     notification_offset: int | None = None
-    telegram_id: int | None = None
+
+class TelegramLinkRequest(BaseModel):
+    code: str
 
 class SubjectCreate(BaseModel):
     name: str
