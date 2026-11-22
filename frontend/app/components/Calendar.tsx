@@ -2,102 +2,140 @@
 import { useState, useEffect } from "react";
 import { format, startOfWeek, addDays, isSameDay, startOfMonth, endOfMonth, endOfWeek, eachDayOfInterval } from "date-fns";
 import { ru } from "date-fns/locale";
-import { Plus } from "lucide-react";
+import { Plus, Settings, Trash2, Edit2 } from "lucide-react";
+import Link from "next/link";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
-type Task = {
-  id: string;
-  title: string;
-  start_at: string;
-  status: string;
-};
+type Subject = { id: string; name: string; color: string };
+type Task = { id: string; title: string; start_at: string; duration_min: number; subject_id: string | null };
+
+const EGE_SUBJECTS = [
+  { name: "Математика", color: "#3B82F6" },
+  { name: "Русский язык", color: "#10B981" },
+  { name: "Физика", color: "#8B5CF6" },
+  { name: "Информатика", color: "#F59E0B" },
+  { name: "Химия", color: "#EF4444" },
+  { name: "Биология", color: "#84CC16" },
+  { name: "История", color: "#6366F1" },
+  { name: "Обществознание", color: "#EC4899" },
+  { name: "Английский", color: "#06B6D4" },
+];
 
 export function Calendar() {
   const [view, setView] = useState<"day" | "week" | "month">("week");
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  
+  // Онбординг (выбор предметов)
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  
+  // Модалка задачи
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState("");
+  const [newSubjectId, setNewSubjectId] = useState("");
   const [newDate, setNewDate] = useState(format(new Date(), "yyyy-MM-dd'T'HH:mm"));
+  const [newDuration, setNewDuration] = useState(60);
 
-  const fetchTasks = async () => {
+  const fetchData = async () => {
     const token = localStorage.getItem("access_token");
     if (!token) return;
-    try {
-      const res = await fetch(`${API_URL}/tasks/`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setTasks(data);
-      }
-    } catch (e) {
-      console.error("Ошибка загрузки задач", e);
+    
+    const [tasksRes, subjectsRes] = await Promise.all([
+      fetch(`${API_URL}/tasks/`, { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(`${API_URL}/subjects/`, { headers: { Authorization: `Bearer ${token}` } })
+    ]);
+    
+    if (tasksRes.ok) setTasks(await tasksRes.json());
+    if (subjectsRes.ok) {
+      const subs = await subjectsRes.json();
+      setSubjects(subs);
+      if (subs.length === 0) setShowOnboarding(true); // Если нет предметов - показываем онбординг
     }
   };
 
   useEffect(() => {
-    fetchTasks();
+    fetchData();
   }, []);
 
-  const handleAddTask = async (e: React.FormEvent) => {
+  const handleAddSubjects = async () => {
+    const token = localStorage.getItem("access_token");
+    // Добавляем базовый набор предметов
+    for (const sub of EGE_SUBJECTS) {
+      await fetch(`${API_URL}/subjects/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(sub)
+      });
+    }
+    setShowOnboarding(false);
+    fetchData();
+  };
+
+  const handleSaveTask = async (e: React.FormEvent) => {
     e.preventDefault();
     const token = localStorage.getItem("access_token");
-    if (!token) return;
+    const method = editingTaskId ? "PUT" : "POST";
+    const url = editingTaskId ? `${API_URL}/tasks/${editingTaskId}` : `${API_URL}/tasks/`;
 
-    try {
-      const res = await fetch(`${API_URL}/tasks/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          title: newTitle,
-          start_at: new Date(newDate).toISOString(),
-          duration_min: 60,
-          priority: 2,
-        }),
-      });
-      if (res.ok) {
-        setIsModalOpen(false);
-        setNewTitle("");
-        fetchTasks();
-      } else {
-        const errorText = await res.text();
-        alert(`Ошибка ${res.status}: ${errorText}`);
-      }
-    } catch (e: any) {
-      alert("Ошибка сети: " + e.message);
+    const payload = {
+      title: newTitle || "Занятие",
+      start_at: new Date(newDate).toISOString(),
+      duration_min: newDuration,
+      subject_id: newSubjectId || null
+    };
+
+    const res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.ok) {
+      setIsModalOpen(false);
+      fetchData();
+    } else {
+      alert("Ошибка при сохранении");
     }
   };
 
-  const renderMonth = () => {
-    const start = startOfWeek(startOfMonth(currentDate), { weekStartsOn: 1 });
-    const end = endOfWeek(endOfMonth(currentDate), { weekStartsOn: 1 });
-    const days = eachDayOfInterval({ start, end });
+  const handleDeleteTask = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!confirm("Удалить задачу?")) return;
+    const token = localStorage.getItem("access_token");
+    await fetch(`${API_URL}/tasks/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    fetchData();
+  };
 
-    return (
-      <div className="grid grid-cols-7 gap-1 mt-4">
-        {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map(d => (
-          <div key={d} className="text-center font-medium text-gray-500 text-sm py-2">{d}</div>
-        ))}
-        {days.map((day, i) => {
-          const dayTasks = tasks.filter(t => isSameDay(new Date(t.start_at), day));
-          const isCurrentMonth = day.getMonth() === currentDate.getMonth();
-          return (
-            <div key={i} className={`min-h-[100px] border rounded-lg p-1 ${isCurrentMonth ? "bg-white" : "bg-gray-50 opacity-50"}`}>
-              <div className="text-right text-sm text-gray-500 mb-1">{format(day, "d")}</div>
-              {dayTasks.map(t => (
-                <div key={t.id} className="text-xs bg-blue-100 text-blue-800 p-1 rounded mb-1 truncate">{t.title}</div>
-              ))}
-            </div>
-          );
-        })}
-      </div>
-    );
+  const openEditModal = (task: Task) => {
+    setEditingTaskId(task.id);
+    setNewTitle(task.title);
+    setNewSubjectId(task.subject_id || "");
+    setNewDate(format(new Date(task.start_at), "yyyy-MM-dd'T'HH:mm"));
+    setNewDuration(task.duration_min);
+    setIsModalOpen(true);
+  };
+
+  const openCreateModal = () => {
+    setEditingTaskId(null);
+    setNewTitle("");
+    setNewSubjectId(subjects[0]?.id || "");
+    setNewDate(format(new Date(), "yyyy-MM-dd'T'HH:mm"));
+    setNewDuration(60);
+    setIsModalOpen(true);
+  };
+
+  const getSubjectColor = (subId: string | null) => {
+    const sub = subjects.find(s => s.id === subId);
+    return sub ? sub.color : "#6B7280";
+  };
+
+  const getSubjectName = (subId: string | null) => {
+    const sub = subjects.find(s => s.id === subId);
+    return sub ? sub.name : "Без предмета";
   };
 
   const renderWeek = () => {
@@ -116,9 +154,18 @@ export function Calendar() {
               </div>
               <div className="space-y-2">
                 {dayTasks.map(t => (
-                  <div key={t.id} className="text-sm bg-blue-50 border-l-4 border-blue-500 p-2 rounded shadow-sm">
-                    <div className="font-medium">{format(new Date(t.start_at), "HH:mm")}</div>
-                    <div className="truncate">{t.title}</div>
+                  <div 
+                    key={t.id} 
+                    onClick={() => openEditModal(t)}
+                    className="cursor-pointer text-sm bg-white border-l-4 p-2 rounded shadow-sm hover:shadow-md transition-shadow relative group"
+                    style={{ borderLeftColor: getSubjectColor(t.subject_id) }}
+                  >
+                    <div className="font-medium flex justify-between">
+                      <span>{format(new Date(t.start_at), "HH:mm")}</span>
+                      <button onClick={(e) => handleDeleteTask(e, t.id)} className="text-red-400 opacity-0 group-hover:opacity-100"><Trash2 size={14}/></button>
+                    </div>
+                    <div className="font-semibold truncate">{getSubjectName(t.subject_id)}</div>
+                    <div className="text-xs text-gray-500">{t.duration_min} мин</div>
                   </div>
                 ))}
               </div>
@@ -129,73 +176,73 @@ export function Calendar() {
     );
   };
 
-  const renderDay = () => {
-    const dayTasks = tasks.filter(t => isSameDay(new Date(t.start_at), currentDate)).sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());
-    return (
-      <div className="mt-4 bg-white border rounded-xl p-6 min-h-[400px]">
-        <h2 className="text-2xl font-bold mb-6">{format(currentDate, "d MMMM yyyy", { locale: ru })}</h2>
-        {dayTasks.length === 0 ? (
-          <p className="text-gray-500 text-center mt-10">На этот день задач нет</p>
-        ) : (
-          <div className="space-y-3">
-            {dayTasks.map(t => (
-              <div key={t.id} className="flex gap-4 p-4 border rounded-lg bg-gray-50">
-                <div className="font-semibold text-blue-600">{format(new Date(t.start_at), "HH:mm")}</div>
-                <div>{t.title}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
   return (
-    <div>
+    <div className="p-4 max-w-6xl mx-auto">
+      {showOnboarding && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-8 max-w-md text-center">
+            <h2 className="text-2xl font-bold mb-4">Добро пожаловать!</h2>
+            <p className="text-gray-600 mb-6">Давайте настроим ваш планер. Мы добавим список стандартных предметов ЕГЭ, а вы сможете заниматься по ним.</p>
+            <button onClick={handleAddSubjects} className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700">
+              Выбрать предметы ЕГЭ
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-center mb-6">
         <div className="flex gap-2">
           {(["day", "week", "month"] as const).map((v) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === v ? "bg-blue-600 text-white" : "bg-white text-gray-600 hover:bg-gray-100 border"}`}
-            >
+            <button key={v} onClick={() => setView(v)} className={`px-4 py-2 rounded-lg text-sm font-medium ${view === v ? "bg-blue-600 text-white" : "bg-white text-gray-600 border"}`}>
               {v === "day" ? "День" : v === "week" ? "Неделя" : "Месяц"}
             </button>
           ))}
         </div>
         
-        <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800">
-          <Plus size={16} /> Новая задача
-        </button>
+        <div className="flex gap-3">
+          <Link href="/settings" className="flex items-center justify-center p-2 bg-gray-100 rounded-lg hover:bg-gray-200">
+            <Settings size={20} className="text-gray-600" />
+          </Link>
+          <button onClick={openCreateModal} className="flex items-center gap-2 bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800">
+            <Plus size={16} /> Запланировать
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-4 mb-4">
         <button onClick={() => setCurrentDate(addDays(currentDate, view === "day" ? -1 : view === "week" ? -7 : -30))} className="px-3 py-1 border rounded hover:bg-gray-50">←</button>
-        <span className="font-semibold text-lg">{format(currentDate, "LLLL yyyy", { locale: ru })}</span>
+        <span className="font-semibold text-lg capitalize">{format(currentDate, "LLLL yyyy", { locale: ru })}</span>
         <button onClick={() => setCurrentDate(addDays(currentDate, view === "day" ? 1 : view === "week" ? 7 : 30))} className="px-3 py-1 border rounded hover:bg-gray-50">→</button>
         <button onClick={() => setCurrentDate(new Date())} className="px-3 py-1 text-sm text-blue-600 hover:underline">Сегодня</button>
       </div>
 
-      {view === "month" && renderMonth()}
       {view === "week" && renderWeek()}
-      {view === "day" && renderDay()}
 
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <form onSubmit={handleAddTask} className="bg-white p-6 rounded-xl w-full max-w-sm space-y-4 shadow-xl">
-            <h2 className="text-xl font-bold">Новая задача</h2>
+          <form onSubmit={handleSaveTask} className="bg-white p-6 rounded-xl w-full max-w-sm space-y-4 shadow-xl">
+            <h2 className="text-xl font-bold">{editingTaskId ? "Редактировать" : "Новое занятие"}</h2>
+            
             <div>
-              <label className="text-sm text-gray-600">Название</label>
-              <input type="text" required value={newTitle} onChange={e => setNewTitle(e.target.value)} className="w-full border p-2 rounded-lg mt-1" placeholder="Например: Решить вариант ЕГЭ" />
+              <label className="text-sm text-gray-600">Предмет</label>
+              <select value={newSubjectId} onChange={e => setNewSubjectId(e.target.value)} className="w-full border p-2 rounded-lg mt-1">
+                {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
             </div>
+
             <div>
-              <label className="text-sm text-gray-600">Дата и время</label>
+              <label className="text-sm text-gray-600">Начало</label>
               <input type="datetime-local" required value={newDate} onChange={e => setNewDate(e.target.value)} className="w-full border p-2 rounded-lg mt-1" />
             </div>
+
+            <div>
+              <label className="text-sm text-gray-600">Длительность (минут)</label>
+              <input type="number" required value={newDuration} onChange={e => setNewDuration(Number(e.target.value))} className="w-full border p-2 rounded-lg mt-1" />
+            </div>
+
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Отмена</button>
-              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg">Создать</button>
+              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg">Сохранить</button>
             </div>
           </form>
         </div>
