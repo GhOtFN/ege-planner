@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { format, startOfWeek, addDays, isSameDay, startOfMonth, endOfMonth, endOfWeek, eachDayOfInterval } from "date-fns";
+import { format, startOfWeek, addDays, isSameDay } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Plus, Settings, Trash2 } from "lucide-react";
 import Link from "next/link";
@@ -23,7 +23,7 @@ const EGE_SUBJECTS = [
 ];
 
 export function Calendar() {
-  const [view, setView] = useState<"day" | "week" | "month">("week");
+  const [view, setView] = useState<"week">("week");
   const [currentDate, setCurrentDate] = useState(new Date());
   
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -38,6 +38,15 @@ export function Calendar() {
   const [newSubjectId, setNewSubjectId] = useState("");
   const [newDate, setNewDate] = useState(format(new Date(), "yyyy-MM-dd'T'HH:mm"));
   const [newDuration, setNewDuration] = useState(60);
+
+  // Кастомные уведомления и подтверждения
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const showToast = (msg: string, type: "success" | "error" = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const fetchData = async () => {
     const token = localStorage.getItem("access_token");
@@ -56,15 +65,12 @@ export function Calendar() {
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
   const handleOnboardingSubmit = async () => {
-    if (selectedOnboarding.length === 0) return alert("Выберите хотя бы один предмет");
+    if (selectedOnboarding.length === 0) return showToast("Выберите хотя бы один предмет", "error");
     setSavingOnboarding(true);
     const token = localStorage.getItem("access_token");
-    
     const toCreate = EGE_SUBJECTS.filter(s => selectedOnboarding.includes(s.name));
     
     const res = await fetch(`${API_URL}/subjects/bulk`, {
@@ -77,7 +83,7 @@ export function Calendar() {
       setShowOnboarding(false);
       fetchData();
     } else {
-      alert("Ошибка при сохранении предметов");
+      showToast("Ошибка при сохранении предметов", "error");
     }
     setSavingOnboarding(false);
   };
@@ -104,17 +110,19 @@ export function Calendar() {
     if (res.ok) {
       setIsModalOpen(false);
       fetchData();
+      showToast(editingTaskId ? "Задача обновлена" : "Занятие добавлено");
     } else {
-      alert("Ошибка при сохранении");
+      showToast("Ошибка при сохранении", "error");
     }
   };
 
-  const handleDeleteTask = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    if (!confirm("Удалить задачу?")) return;
+  const handleDeleteTask = async () => {
+    if (!confirmDelete) return;
     const token = localStorage.getItem("access_token");
-    await fetch(`${API_URL}/tasks/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    await fetch(`${API_URL}/tasks/${confirmDelete}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    setConfirmDelete(null);
     fetchData();
+    showToast("Занятие удалено");
   };
 
   const openEditModal = (task: Task) => {
@@ -154,7 +162,7 @@ export function Calendar() {
                   <div key={t.id} onClick={() => openEditModal(t)} className="cursor-pointer text-sm bg-white border-l-4 p-2 rounded shadow-sm hover:shadow-md relative group" style={{ borderLeftColor: getSubjectColor(t.subject_id) }}>
                     <div className="font-medium flex justify-between">
                       <span>{format(new Date(t.start_at), "HH:mm")}</span>
-                      <button onClick={(e) => handleDeleteTask(e, t.id)} className="text-red-400 opacity-0 group-hover:opacity-100"><Trash2 size={14}/></button>
+                      <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(t.id); }} className="text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14}/></button>
                     </div>
                     <div className="font-semibold truncate">{getSubjectName(t.subject_id)}</div>
                     <div className="text-xs text-gray-500">{t.duration_min} мин</div>
@@ -169,7 +177,28 @@ export function Calendar() {
   };
 
   return (
-    <div className="p-4 max-w-6xl mx-auto">
+    <div className="p-4 max-w-6xl mx-auto relative">
+      {/* Тост-уведомление */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-[100] px-6 py-3 rounded-lg shadow-lg text-white font-medium transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
+          {toast.msg}
+        </div>
+      )}
+
+      {/* Окно подтверждения удаления */}
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+          <div className="bg-white p-6 rounded-xl w-full max-w-sm text-center shadow-xl">
+            <h3 className="text-lg font-bold mb-2">Удалить занятие?</h3>
+            <p className="text-gray-500 mb-6 text-sm">Это действие нельзя отменить.</p>
+            <div className="flex justify-center gap-3">
+              <button onClick={() => setConfirmDelete(null)} className="px-4 py-2 border rounded-lg hover:bg-gray-50">Отмена</button>
+              <button onClick={handleDeleteTask} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Удалить</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showOnboarding && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-8 max-w-lg w-full">
@@ -178,15 +207,10 @@ export function Calendar() {
             <div className="grid grid-cols-2 gap-3 mb-8">
               {EGE_SUBJECTS.map(sub => (
                 <label key={sub.name} className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input 
-                    type="checkbox" 
-                    checked={selectedOnboarding.includes(sub.name)}
-                    onChange={(e) => {
-                      if (e.target.checked) setSelectedOnboarding([...selectedOnboarding, sub.name]);
-                      else setSelectedOnboarding(selectedOnboarding.filter(n => n !== sub.name));
-                    }}
-                    className="w-4 h-4 text-blue-600"
-                  />
+                  <input type="checkbox" checked={selectedOnboarding.includes(sub.name)} onChange={(e) => {
+                    if (e.target.checked) setSelectedOnboarding([...selectedOnboarding, sub.name]);
+                    else setSelectedOnboarding(selectedOnboarding.filter(n => n !== sub.name));
+                  }} className="w-4 h-4 text-blue-600" />
                   <span className="font-medium">{sub.name}</span>
                 </label>
               ))}
@@ -199,14 +223,7 @@ export function Calendar() {
       )}
 
       <div className="flex justify-between items-center mb-6">
-        <div className="flex gap-2">
-          {(["day", "week", "month"] as const).map((v) => (
-            <button key={v} onClick={() => setView(v)} className={`px-4 py-2 rounded-lg text-sm font-medium ${view === v ? "bg-blue-600 text-white" : "bg-white text-gray-600 border"}`}>
-              {v === "day" ? "День" : v === "week" ? "Неделя" : "Месяц"}
-            </button>
-          ))}
-        </div>
-        
+        <h1 className="text-2xl font-bold">Мой план</h1>
         <div className="flex gap-3">
           <Link href="/settings" className="flex items-center justify-center p-2 bg-gray-100 rounded-lg hover:bg-gray-200">
             <Settings size={20} className="text-gray-600" />
@@ -218,13 +235,13 @@ export function Calendar() {
       </div>
 
       <div className="flex items-center gap-4 mb-4">
-        <button onClick={() => setCurrentDate(addDays(currentDate, view === "day" ? -1 : view === "week" ? -7 : -30))} className="px-3 py-1 border rounded hover:bg-gray-50">←</button>
+        <button onClick={() => setCurrentDate(addDays(currentDate, -7))} className="px-3 py-1 border rounded hover:bg-gray-50">←</button>
         <span className="font-semibold text-lg capitalize">{format(currentDate, "LLLL yyyy", { locale: ru })}</span>
-        <button onClick={() => setCurrentDate(addDays(currentDate, view === "day" ? 1 : view === "week" ? 7 : 30))} className="px-3 py-1 border rounded hover:bg-gray-50">→</button>
+        <button onClick={() => setCurrentDate(addDays(currentDate, 7))} className="px-3 py-1 border rounded hover:bg-gray-50">→</button>
         <button onClick={() => setCurrentDate(new Date())} className="px-3 py-1 text-sm text-blue-600 hover:underline">Сегодня</button>
       </div>
 
-      {view === "week" && renderWeek()}
+      {renderWeek()}
 
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
