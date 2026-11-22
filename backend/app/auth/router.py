@@ -7,7 +7,9 @@ from app.db import get_db
 from app.models import User, Session
 from app.schemas import UserRegister, UserLogin, TokenResponse, RefreshRequest, UserUpdate
 from app.auth.jwt import create_access_token, create_refresh_token, decode_refresh
-from app.auth.deps import get_current_user  # <--- ВОТ ЭТОТ ИМПОРТ БЫЛ ПРОПУЩЕН
+from app.auth.deps import get_current_user
+from app.bot.bot import bot, send_notification
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 import hashlib
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -146,4 +148,35 @@ async def update_me(data: UserUpdate, current: User = Depends(get_current_user),
         current.telegram_id = data.telegram_id
     
     await db.commit()
+    return {"ok": True}
+
+
+@router.post("/test-telegram")
+async def test_telegram(current: User = Depends(get_current_user)):
+    if not current.telegram_id:
+        raise HTTPException(400, "Telegram ID не привязан в настройках")
+    
+    try:
+        if bot:
+            # Проверяем, может ли бот писать этому пользователю (не заблокировал ли он его и начинал ли диалог)
+            try:
+                await bot.get_chat(chat_id=current.telegram_id)
+            except (TelegramBadRequest, TelegramForbiddenError) as e:
+                if "chat not found" in str(e).lower():
+                    raise HTTPException(400, "Бот не может написать вам первым. Найдите бота в Telegram и нажмите 'Запустить' (/start), затем повторите тест.")
+                elif "blocked by the user" in str(e).lower():
+                    raise HTTPException(400, "Вы заблокировали бота. Разблокируйте его в Telegram.")
+                else:
+                    raise HTTPException(500, f"Ошибка проверки чата: {str(e)}")
+            
+            # Если проверка прошла, отправляем сообщение
+            await send_notification(current.telegram_id, "🔔 Это тестовое уведомление от ЕГЭ-Планера! Всё работает отлично.")
+        else:
+            raise HTTPException(500, "Бот не инициализирован. Проверьте TELEGRAM_BOT_TOKEN в переменных окружения Render.")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Ошибка отправки: {str(e)}")
+    
     return {"ok": True}
