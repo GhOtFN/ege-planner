@@ -9,13 +9,15 @@ scheduler = AsyncIOScheduler(timezone="UTC")
 
 async def check_reminders():
     async with async_session() as db:
+        # Ищем напоминания, время которых пришло.
+        # Используем позиционные аргументы для make_interval (годы, месяцы, недели, дни, часы, минуты, секунды)
         due = await db.execute(
             select(Reminder, Task, User)
             .join(Task, Reminder.task_id == Task.id)
             .join(User, Task.user_id == User.id)
             .where(Reminder.sent_at.is_(None))
             .where(
-                Task.start_at - func.make_interval(mins=Reminder.offset_min) <= datetime.now(timezone.utc)
+                Task.start_at <= func.now() + func.make_interval(0, 0, 0, 0, 0, Reminder.offset_min, 0)
             )
         )
         for reminder, task, user in due.all():
