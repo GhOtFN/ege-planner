@@ -14,6 +14,7 @@ from app.diagnostics.router import router as diagnostics_router
 from app.scheduler import scheduler
 from app.bot.bot import bot, dp
 from passlib.context import CryptContext
+from app.subjects.router import router as subjects_router
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -75,7 +76,7 @@ app.include_router(sessions_router)
 app.include_router(activity_router)
 app.include_router(admin_router)
 app.include_router(diagnostics_router)
-
+app.include_router(subjects_router)
 
 @app.get("/health")
 async def health():
