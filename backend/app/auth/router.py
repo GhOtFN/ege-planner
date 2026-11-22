@@ -95,3 +95,14 @@ async def refresh_token(data: RefreshRequest, request: Request, db: AsyncSession
     await db.commit()
     access = create_access_token(str(session.user_id))
     return {"access_token": access, "refresh_token": new_refresh}
+    from app.schemas import UserUpdate
+
+@router.patch("/me")
+async def update_me(data: UserUpdate, current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if data.notification_offset is not None:
+        current.notification_offset = data.notification_offset
+    if data.telegram_id is not None:
+        current.telegram_id = data.telegram_id
+    
+    await db.commit()
+    return {"ok": True}
