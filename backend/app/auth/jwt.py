@@ -15,7 +15,6 @@ def create_access_token(user_id: str, impersonator_id: str | None = None) -> str
         payload["impersonator_id"] = impersonator_id
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
-# create_refresh_token, decode_access, decode_refresh остаются без изменений
 def create_refresh_token(user_id: str) -> str:
     payload = {
         "sub": user_id,
