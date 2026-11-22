@@ -16,6 +16,11 @@ async def list_subjects(current: User = Depends(get_current_user), db: AsyncSess
 
 @router.post("/")
 async def create_subject(data: SubjectCreate, current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    # Проверка на дубликат
+    existing = await db.execute(select(Subject).where(Subject.user_id == current.id, Subject.name == data.name))
+    if existing.scalar_one_or_none():
+        raise HTTPException(400, "Предмет уже существует")
+        
     subject = Subject(user_id=current.id, name=data.name, color=data.color)
     db.add(subject)
     await db.commit()
@@ -23,8 +28,14 @@ async def create_subject(data: SubjectCreate, current: User = Depends(get_curren
 
 @router.post("/bulk")
 async def create_subjects_bulk(data: list[SubjectCreate], current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    # Получаем имена уже существующих предметов
+    existing_res = await db.execute(select(Subject.name).where(Subject.user_id == current.id))
+    existing_names = set(existing_res.scalars().all())
+
     for item in data:
-        db.add(Subject(user_id=current.id, name=item.name, color=item.color))
+        if item.name not in existing_names:
+            db.add(Subject(user_id=current.id, name=item.name, color=item.color))
+    
     await db.commit()
     return {"ok": True}
 
