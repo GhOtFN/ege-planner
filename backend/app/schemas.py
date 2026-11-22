@@ -40,3 +40,10 @@ class TaskUpdate(BaseModel):
     duration_min: int | None = None
     subject_id: UUID | None = None
     status: str | None = None
+
+class AdminActionRequest(BaseModel):
+    password: str
+
+class ImpersonateResponse(BaseModel):
+    access_token: str
+    target_user: dict
