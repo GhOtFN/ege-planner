@@ -2,6 +2,8 @@
 import { useState } from "react";
 import Link from "next/link";
 
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+
 export function AuthScreen({ onSuccess }: { onSuccess: () => void }) {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
@@ -13,7 +15,7 @@ export function AuthScreen({ onSuccess }: { onSuccess: () => void }) {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    const endpoint = isRegister ? "/api/auth/register" : "/api/auth/login";
+    const endpoint = isRegister ? `${API_URL}/auth/register` : `${API_URL}/auth/login`;
     try {
       const res = await fetch(endpoint, {
         method: "POST",
@@ -26,7 +28,7 @@ export function AuthScreen({ onSuccess }: { onSuccess: () => void }) {
       }
       const data = await res.json();
       localStorage.setItem("refresh_token", data.refresh_token);
-      localStorage.setItem("access_token", data.access_token); // Сохраняем токен
+      localStorage.setItem("access_token", data.access_token);
       onSuccess();
     } catch (err: any) {
       setError(err.message || "Ошибка авторизации");
