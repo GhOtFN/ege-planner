@@ -5,8 +5,7 @@ from app.db import get_db
 from app.models import User, Task, Session, ActivityEvent, Reminder
 from app.bot.bot import bot
 from app.scheduler import scheduler
-from app.config import settings
-from app.main import APP_START_TIME
+from app.config import settings, APP_START_TIME
 import time
 
 router = APIRouter(prefix="/diagnostics", tags=["diagnostics"])
