@@ -11,43 +11,58 @@ from app.sessions.router import router as sessions_router
 from app.activity.router import router as activity_router
 from app.admin.router import router as admin_router
 from app.diagnostics.router import router as diagnostics_router
+from app.subjects.router import router as subjects_router
 from app.scheduler import scheduler
 from app.bot.bot import bot, dp
 from passlib.context import CryptContext
-from app.subjects.router import router as subjects_router
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Создание таблиц
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    print("--> [STARTUP] Connecting to DB...")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        print("--> [STARTUP] DB connected and tables checked.")
+    except Exception as e:
+        print("--> [STARTUP ERROR] DB connection failed:", str(e))
 
-    # Бутстрап суперадмина
     if settings.bootstrap_superadmin_email:
-        async with async_session() as db:
-            from sqlalchemy import select
-            res = await db.execute(
-                select(User).where(User.email == settings.bootstrap_superadmin_email)
-            )
-            if not res.scalar_one_or_none():
-                # Обрезаем пароль до 72 байт для безопасности bcrypt
-                safe_password = settings.bootstrap_superadmin_password[:72]
-                db.add(
-                    User(
-                        email=settings.bootstrap_superadmin_email,
-                        password_hash=pwd_context.hash(safe_password),
-                        role="superadmin",
-                    )
+        print("--> [STARTUP] Checking superadmin...")
+        try:
+            async with async_session() as db:
+                from sqlalchemy import select
+                res = await db.execute(
+                    select(User).where(User.email == settings.bootstrap_superadmin_email)
                 )
-                await db.commit()
+                if not res.scalar_one_or_none():
+                    safe_password = settings.bootstrap_superadmin_password[:72]
+                    db.add(
+                        User(
+                            email=settings.bootstrap_superadmin_email,
+                            password_hash=pwd_context.hash(safe_password),
+                            role="superadmin",
+                        )
+                    )
+                    await db.commit()
+                    print("--> [STARTUP] Superadmin created.")
+                else:
+                    print("--> [STARTUP] Superadmin already exists.")
+        except Exception as e:
+            print("--> [STARTUP ERROR] Superadmin creation failed:", str(e))
 
+    print("--> [STARTUP] Starting scheduler...")
     scheduler.start()
+
     if bot:
+        print("--> [STARTUP] Starting bot polling...")
         asyncio.create_task(dp.start_polling(bot))
+        
+    print("--> [STARTUP] Application startup complete! Ready to accept requests.")
     yield
+    print("--> [SHUTDOWN] Stopping application...")
     scheduler.shutdown()
     if bot:
         await bot.session.close()
@@ -63,12 +78,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.middleware("http")
 async def real_ip(request: Request, call_next):
     request.state.client_ip = request.client.host if request.client else None
     return await call_next(request)
-
 
 app.include_router(auth_router)
 app.include_router(tasks_router)
@@ -77,6 +90,7 @@ app.include_router(activity_router)
 app.include_router(admin_router)
 app.include_router(diagnostics_router)
 app.include_router(subjects_router)
+
 
 @app.get("/health")
 async def health():
