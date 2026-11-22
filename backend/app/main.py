@@ -1,4 +1,5 @@
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,11 +11,16 @@ from app.tasks.router import router as tasks_router
 from app.sessions.router import router as sessions_router
 from app.activity.router import router as activity_router
 from app.admin.router import router as admin_router
+from app.diagnostics.router import router as diagnostics_router
 from app.scheduler import scheduler
 from app.bot.bot import bot, dp
 from passlib.context import CryptContext
 
+# Время старта — используется в /diagnostics для проверки холодного старта
+APP_START_TIME = time.time()
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,13 +32,19 @@ async def lifespan(app: FastAPI):
     if settings.bootstrap_superadmin_email:
         async with async_session() as db:
             from sqlalchemy import select
-            res = await db.execute(select(User).where(User.email == settings.bootstrap_superadmin_email))
+            res = await db.execute(
+                select(User).where(User.email == settings.bootstrap_superadmin_email)
+            )
             if not res.scalar_one_or_none():
-                db.add(User(
-                    email=settings.bootstrap_superadmin_email,
-                    password_hash=pwd_context.hash(settings.bootstrap_superadmin_password),
-                    role="superadmin",
-                ))
+                db.add(
+                    User(
+                        email=settings.bootstrap_superadmin_email,
+                        password_hash=pwd_context.hash(
+                            settings.bootstrap_superadmin_password
+                        ),
+                        role="superadmin",
+                    )
+                )
                 await db.commit()
 
     scheduler.start()
@@ -42,6 +54,7 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
     if bot:
         await bot.session.close()
+
 
 app = FastAPI(lifespan=lifespan)
 
@@ -53,16 +66,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.middleware("http")
 async def real_ip(request: Request, call_next):
     request.state.client_ip = request.client.host if request.client else None
     return await call_next(request)
+
 
 app.include_router(auth_router)
 app.include_router(tasks_router)
 app.include_router(sessions_router)
 app.include_router(activity_router)
 app.include_router(admin_router)
+app.include_router(diagnostics_router)
+
 
 @app.get("/health")
 async def health():
