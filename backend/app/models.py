@@ -16,11 +16,18 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[str] = mapped_column(String, default="user")
     telegram_id: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
-    notification_offset: Mapped[int] = mapped_column(Integer, default=30) # За сколько минут уведомлять
+    notification_offset: Mapped[int] = mapped_column(Integer, default=30)
     timezone: Mapped[str] = mapped_column(String, default="Europe/Moscow")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (CheckConstraint("role IN ('user','admin','superadmin')"),)
+
+class TelegramLinkCode(Base):
+    __tablename__ = "telegram_link_codes"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    telegram_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
 class Session(Base):
     __tablename__ = "sessions"
