@@ -11,6 +11,9 @@ from app.auth.deps import get_current_user
 from app.bot.bot import bot, send_notification
 from app.activity.utils import log_action
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from app.models import PushSubscription
+from app.schemas import PushSubscriptionCreate
+import secrets
 import hashlib
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -184,4 +187,24 @@ async def test_telegram(current: User = Depends(get_current_user)):
         raise
     except Exception as e:
         raise HTTPException(500, f"Ошибка отправки: {str(e)}")
+    return {"ok": True}
+    @router.post("/share-token")
+async def generate_share_token(current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not current.share_token:
+        current.share_token = secrets.token_urlsafe(16)
+        await db.commit()
+    return {"token": current.share_token}
+
+@router.post("/push-subscribe")
+async def subscribe_push(data: PushSubscriptionCreate, current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    # Обновляем или создаем
+    res = await db.execute(select(PushSubscription).where(PushSubscription.endpoint == data.endpoint))
+    sub = res.scalar_one_or_none()
+    if not sub:
+        db.add(PushSubscription(user_id=current.id, endpoint=data.endpoint, p256dh=data.keys.p256dh, auth=data.keys.auth))
+    else:
+        sub.user_id = current.id
+        sub.p256dh = data.keys.p256dh
+        sub.auth = data.keys.auth
+    await db.commit()
     return {"ok": True}
