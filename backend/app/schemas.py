@@ -20,6 +20,7 @@ class RefreshRequest(BaseModel):
 
 class UserUpdate(BaseModel):
     notification_offset: int | None = None
+    timezone: str | None = None
 
 class PasswordChange(BaseModel):
     old_password: str
@@ -51,8 +52,6 @@ class AdminActionRequest(BaseModel):
 class ImpersonateResponse(BaseModel):
     access_token: str
     target_user: dict
-
-# --- Новые схемы для Push-уведомлений ---
 
 class PushSubscriptionKeys(BaseModel):
     p256dh: str
