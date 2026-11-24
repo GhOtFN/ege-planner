@@ -164,13 +164,21 @@ export default function SettingsPage() {
       <div className="bg-white rounded-2xl shadow-sm p-5 border">
         <h3 className="font-bold mb-2 flex items-center gap-2"><Bell size={18}/> Push-уведомления</h3>
         <p className="text-xs text-gray-500 mb-3">На iPhone добавьте сайт на экран «Домой» и откройте оттуда.</p>
-        {pushEnabled ? (
-          <div className="flex gap-2">
-            <span className="flex-1 bg-green-50 text-green-700 p-2 rounded-xl text-sm flex items-center gap-2"><CheckCircle2 size={16}/> Подключено</span>
-            <button onClick={testPush} className="px-3 py-2 bg-blue-100 text-blue-700 rounded-xl text-sm">Тест</button>
+                {pushEnabled ? (
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <span className="flex-1 bg-green-50 text-green-700 p-2 rounded-xl text-sm flex items-center gap-2"><CheckCircle2 size={16}/> Подключено</span>
+              <button onClick={testPush} className="px-3 py-2 bg-blue-100 text-blue-700 rounded-xl text-sm">Тест</button>
+            </div>
+            <button onClick={async () => {
+              const reg = await navigator.serviceWorker.ready;
+              const sub = await reg.pushManager.getSubscription();
+              if (sub) await sub.unsubscribe();
+              setPushEnabled(false);
+              showToast("Push отключен. Нажмите 'Подключить' заново.");
+            }} className="text-xs text-red-500 hover:underline">Сбросить подписку (если не приходят)</button>
           </div>
         ) : <button onClick={subscribePush} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm">Подключить Push</button>}
-      </div>
 
       {/* Telegram */}
       <div className="bg-white rounded-2xl shadow-sm p-5 border">
