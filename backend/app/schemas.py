@@ -51,3 +51,13 @@ class AdminActionRequest(BaseModel):
 class ImpersonateResponse(BaseModel):
     access_token: str
     target_user: dict
+
+# --- Новые схемы для Push-уведомлений ---
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+class PushSubscriptionCreate(BaseModel):
+    endpoint: str
+    keys: PushSubscriptionKeys
