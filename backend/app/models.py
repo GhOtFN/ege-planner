@@ -1,9 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import (
-    String, Boolean, Integer, SmallInteger, Text, TIMESTAMP,
-    ForeignKey, CheckConstraint, func, UUID, JSON
-)
+from sqlalchemy import String, Boolean, Integer, SmallInteger, Text, TIMESTAMP, ForeignKey, CheckConstraint, func, UUID, JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
@@ -17,10 +14,19 @@ class User(Base):
     role: Mapped[str] = mapped_column(String, default="user")
     telegram_id: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
     notification_offset: Mapped[int] = mapped_column(Integer, default=30)
+    share_token: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     timezone: Mapped[str] = mapped_column(String, default="Europe/Moscow")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
-
     __table_args__ = (CheckConstraint("role IN ('user','admin','superadmin')"),)
+
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    endpoint: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    p256dh: Mapped[str] = mapped_column(String, nullable=False)
+    auth: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
 class TelegramLinkCode(Base):
     __tablename__ = "telegram_link_codes"
@@ -81,7 +87,7 @@ class ActivityEvent(Base):
     effective_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     action: Mapped[str] = mapped_column(String, nullable=False)
     entity_type: Mapped[str | None] = mapped_column(String, nullable=True)
-    entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
     before_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     after_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     is_impersonation: Mapped[bool] = mapped_column(Boolean, default=False)
