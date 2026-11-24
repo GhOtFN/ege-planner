@@ -214,15 +214,22 @@ async def subscribe_push(data: PushSubscriptionCreate, current: User = Depends(g
 async def test_push(current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     from app.config import settings
     if not settings.vapid_private_key:
-        raise HTTPException(500, "VAPID-ключи не настроены на сервере. Смотрите инструкцию.")
+        raise HTTPException(500, "VAPID-ключи не настроены на сервере.")
+    
     try:
-        from pywebpush import webpush
+        from pywebpush import webpush, WebPushException
         import json
+        
+        # Получаем все устройства, привязанные к пользователю
         res = await db.execute(select(PushSubscription).where(PushSubscription.user_id == current.id))
         subs = res.scalars().all()
+        
         if not subs:
-            raise HTTPException(400, "Нет подписок. Разрешите уведомления на странице настроек.")
+            raise HTTPException(400, "Нет активных подписок. Разрешите уведомления в настройках.")
+        
         sent = 0
+        errors = []
+        
         for sub in subs:
             try:
                 webpush(
@@ -232,8 +239,21 @@ async def test_push(current: User = Depends(get_current_user), db: AsyncSession 
                     vapid_claims={"sub": settings.vapid_subject}
                 )
                 sent += 1
+            except WebPushException as e:
+                # Если Apple/Google говорят, что токен устарел или невалиден (410, 404, 401)
+                if e.response and e.response.status_code in [401, 403, 404, 410]:
+                    await db.delete(sub) # Автоматически удаляем мертвое устройство
+                    errors.append("Одно устройство отключено (токен устарел)")
+                else:
+                    errors.append(str(e))
             except Exception as e:
-                print(f"Push error: {e}")
+                errors.append(str(e))
+        
+        await db.commit() # Сохраняем удаление мертвых токенов
+        
+        if sent == 0:
+            raise HTTPException(400, f"Не удалось отправить. Причины: {'; '.join(errors)}")
+            
         return {"ok": True, "sent": sent}
     except ImportError:
         raise HTTPException(500, "pywebpush не установлен")
