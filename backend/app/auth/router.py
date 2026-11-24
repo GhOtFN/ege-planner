@@ -209,6 +209,29 @@ async def subscribe_push(data: PushSubscriptionCreate, current: User = Depends(g
     return {"ok": True}
 
 @router.post("/test-push")
-async def test_push(current: User = Depends(get_current_user)):
-    # Заглушка для теста Push
-    return {"ok": True, "message": "Push отправлен (тестовый режим)"}
+async def test_push(current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    from app.config import settings
+    if not settings.vapid_private_key:
+        raise HTTPException(500, "VAPID-ключи не настроены на сервере. Смотрите инструкцию.")
+    try:
+        from pywebpush import webpush
+        import json
+        res = await db.execute(select(PushSubscription).where(PushSubscription.user_id == current.id))
+        subs = res.scalars().all()
+        if not subs:
+            raise HTTPException(400, "Нет подписок. Разрешите уведомления на странице настроек.")
+        sent = 0
+        for sub in subs:
+            try:
+                webpush(
+                    subscription_info={"endpoint": sub.endpoint, "keys": {"p256dh": sub.p256dh, "auth": sub.auth}},
+                    data=json.dumps({"title": "ЕГЭ-Планер", "body": "Тестовое уведомление! Работает ✅"}),
+                    vapid_private_key=settings.vapid_private_key,
+                    vapid_claims={"sub": settings.vapid_subject}
+                )
+                sent += 1
+            except Exception as e:
+                print(f"Push error: {e}")
+        return {"ok": True, "sent": sent}
+    except ImportError:
+        raise HTTPException(500, "pywebpush не установлен")
