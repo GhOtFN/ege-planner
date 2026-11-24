@@ -55,15 +55,11 @@ async def create_start(callback: CallbackQuery):
     async with async_session() as db:
         res = await db.execute(select(User).where(User.telegram_id == callback.from_user.id))
         user = res.scalar_one_or_none()
-        if not user:
-            return await callback.answer("Напиши /start", show_alert=True)
+        if not user: return await callback.answer("Напиши /start")
         subs = await db.execute(select(Subject).where(Subject.user_id == user.id))
         subjects = subs.scalars().all()
-        if not subjects:
-            return await callback.answer("Добавь предметы в настройках на сайте!", show_alert=True)
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=s.name, callback_data=f"csub_{s.id}")] for s in subjects
-        ] + [[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_main")]])
+        if not subjects: return await callback.answer("Добавь предметы на сайте!", show_alert=True)
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=s.name, callback_data=f"csub_{s.id}")] for s in subjects] + [[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_main")]])
         await callback.message.edit_text("Выбери предмет:", reply_markup=kb)
 
 @router.callback_query(F.data.startswith("csub_"))
@@ -77,10 +73,7 @@ async def create_subject(callback: CallbackQuery):
     kb = []
     for i in range(7):
         d = now_local + timedelta(days=i)
-        kb.append([InlineKeyboardButton(
-            text=f"{WEEKDAYS[d.weekday()]}, {d.strftime('%d.%m')}",
-            callback_data=f"cday_{i}_{sub_id}"
-        )])
+        kb.append([InlineKeyboardButton(text=f"{WEEKDAYS[d.weekday()]}, {d.strftime('%d.%m')}", callback_data=f"cday_{i}_{sub_id}")])
     kb.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="create_start")])
     await callback.message.edit_text("Выбери день (на неделю вперёд):", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
@@ -88,7 +81,7 @@ async def create_subject(callback: CallbackQuery):
 async def create_day(callback: CallbackQuery):
     _, days, sub_id = callback.data.split("_")
     kb = []
-    hours = list(range(6, 24))  # 6:00 - 23:00
+    hours = list(range(6, 24))
     for i in range(0, len(hours), 4):
         row = [InlineKeyboardButton(text=f"{h:02d}:00", callback_data=f"chour_{days}_{sub_id}_{h}") for h in hours[i:i+4]]
         kb.append(row)
@@ -115,10 +108,7 @@ async def create_duration(callback: CallbackQuery):
         
         db.add(Task(user_id=user.id, title="Занятие", start_at=dt_utc, duration_min=int(dur)*60, subject_id=sub_id))
         await db.commit()
-    await callback.message.edit_text(
-        f"✅ Создано: {target_local.strftime('%d.%m %H:%M')} ({dur} ч)",
-        reply_markup=back_btn()
-    )
+    await callback.message.edit_text(f"✅ Создано: {target_local.strftime('%d.%m %H:%M')} ({dur} ч)", reply_markup=back_btn())
 
 # ===== РАСПИСАНИЕ =====
 @router.callback_query(F.data == "schedule_start")
@@ -126,17 +116,13 @@ async def schedule_start(callback: CallbackQuery):
     async with async_session() as db:
         res = await db.execute(select(User).where(User.telegram_id == callback.from_user.id))
         user = res.scalar_one_or_none()
-        if not user:
-            return await callback.answer("Напиши /start")
+        if not user: return await callback.answer("Напиши /start")
     tz = get_user_tz(user)
     now_local = datetime.now(tz)
     kb = []
     for i in range(7):
         d = now_local + timedelta(days=i)
-        kb.append([InlineKeyboardButton(
-            text=f"{WEEKDAYS[d.weekday()]}, {d.strftime('%d.%m')}",
-            callback_data=f"view_{i}"
-        )])
+        kb.append([InlineKeyboardButton(text=f"{WEEKDAYS[d.weekday()]}, {d.strftime('%d.%m')}", callback_data=f"view_{i}")])
     kb.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_main")])
     await callback.message.edit_text("Выбери день:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
@@ -161,28 +147,43 @@ async def view_day(callback: CallbackQuery):
     
     text = f"📅 <b>{target_day.strftime('%d.%m.%Y')}</b>\n\n"
     buttons = []
-    if not rows:
-        text += "На этот день занятий нет."
+    if not rows: text += "На этот день занятий нет."
     for t, sub_name in rows:
         local_dt = t.start_at.astimezone(tz)
         status = "✅" if t.status == "done" else "⏳"
         text += f"{status} {local_dt.strftime('%H:%M')} — {sub_name or 'Без предмета'} ({t.duration_min} мин)\n"
+        
+        # Кнопки управления каждой задачей
+        row_btns = []
         if t.status != "done":
-            buttons.append([InlineKeyboardButton(text=f"✅ Отметить {local_dt.strftime('%H:%M')}", callback_data=f"markdone_{t.id}_{days}")])
+            row_btns.append(InlineKeyboardButton(text=f"✅ Выполнено", callback_data=f"markdone_{t.id}_{days}"))
+        row_btns.append(InlineKeyboardButton(text=f"🗑 Удалить", callback_data=f"del_{t.id}_{days}"))
+        buttons.append(row_btns)
+        
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="schedule_start")])
-    
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
 @router.callback_query(F.data.startswith("markdone_"))
 async def mark_done(callback: CallbackQuery):
-    parts = callback.data.split("_")
-    task_id, days = parts[1], parts[2]
+    _, task_id, days = callback.data.split("_")
     async with async_session() as db:
         task = await db.get(Task, task_id)
         if task:
             task.status = "done"
             await db.commit()
     await callback.answer("✅ Отмечено!")
+    callback.data = f"view_{days}"
+    await view_day(callback)
+
+@router.callback_query(F.data.startswith("del_"))
+async def delete_task(callback: CallbackQuery):
+    _, task_id, days = callback.data.split("_")
+    async with async_session() as db:
+        task = await db.get(Task, task_id)
+        if task:
+            await db.delete(task)
+            await db.commit()
+    await callback.answer("🗑 Удалено!")
     callback.data = f"view_{days}"
     await view_day(callback)
 
@@ -200,21 +201,17 @@ async def stats_menu(callback: CallbackQuery):
 async def build_stats_text(user, period):
     async with async_session() as db:
         query = select(Subject.name, func.sum(Task.duration_min).label("total"))
-        if period == "day":
-            query = query.where(Task.start_at >= func.now() - func.make_interval(0, 0, 0, 1))
-        elif period == "week":
-            query = query.where(Task.start_at >= func.now() - func.make_interval(0, 0, 0, 7))
-        else:
-            query = query.where(Task.start_at >= func.now() - func.make_interval(0, 1))
+        if period == "day": query = query.where(Task.start_at >= func.now() - func.make_interval(0, 0, 0, 1))
+        elif period == "week": query = query.where(Task.start_at >= func.now() - func.make_interval(0, 0, 0, 7))
+        else: query = query.where(Task.start_at >= func.now() - func.make_interval(0, 1))
+        
         query = query.join(Task, Task.subject_id == Subject.id).where(Task.user_id == user.id, Task.status == "done").group_by(Subject.id)
         res = await db.execute(query)
         rows = res.all()
-        if not rows:
-            return "Нет выполненных задач за этот период."
+        if not rows: return "Нет выполненных задач за этот период."
         total = sum(r.total for r in rows) / 60
-        text = f"📊 <b>Статистика ({period})</b>\n\nВсего: <b>{round(total, 1)} ч</b>\n\n"
-        for r in rows:
-            text += f"• {r.name}: {round(r.total/60, 1)} ч\n"
+        text = f"📊 <b>Статистика</b>\n\nВсего: <b>{round(total, 1)} ч</b>\n\n"
+        for r in rows: text += f"• {r.name}: {round(r.total/60, 1)} ч\n"
         return text
 
 @router.callback_query(F.data.in_({"stats_day", "stats_week", "stats_month"}))
@@ -229,7 +226,5 @@ async def show_stats(callback: CallbackQuery):
 
 async def send_notification(telegram_id: int, text: str):
     if bot:
-        try:
-            await bot.send_message(telegram_id, text)
-        except Exception:
-            pass
+        try: await bot.send_message(telegram_id, text)
+        except Exception: pass
