@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { format, startOfWeek, addDays, isSameDay } from "date-fns";
 import { ru } from "date-fns/locale";
-import { Plus, Settings, Trash2 } from "lucide-react";
+import { Plus, Settings, Trash2, CheckCircle2, Circle, BarChart2 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "../providers/AuthProvider";
 import { AdminShield } from "./AdminShield";
@@ -10,7 +10,7 @@ import { AdminShield } from "./AdminShield";
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
 type Subject = { id: string; name: string; color: string };
-type Task = { id: string; title: string; start_at: string; duration_min: number; subject_id: string | null };
+type Task = { id: string; title: string; start_at: string; duration_min: number; status: string; subject_id: string | null };
 
 const EGE_SUBJECTS = [
   { name: "Математика", color: "#3B82F6" },
@@ -31,10 +31,10 @@ export function Calendar() {
   
   const [tasks, setTasks] = useState<Task[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [filterSubject, setFilterSubject] = useState<string | null>(null);
   
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [selectedOnboarding, setSelectedOnboarding] = useState<string[]>([]);
-  const [savingOnboarding, setSavingOnboarding] = useState(false);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -43,22 +43,21 @@ export function Calendar() {
   const [newDuration, setNewDuration] = useState(60);
 
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const showToast = (msg: string, type: "success" | "error" = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   };
 
+  const getToken = () => sessionStorage.getItem("impersonation_token") || localStorage.getItem("access_token");
+
   const fetchData = async () => {
-    const token = sessionStorage.getItem("impersonation_token") || localStorage.getItem("access_token");
+    const token = getToken();
     if (!token) return;
-    
     const [tasksRes, subjectsRes] = await Promise.all([
       fetch(`${API_URL}/tasks/`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${API_URL}/subjects/`, { headers: { Authorization: `Bearer ${token}` } })
     ]);
-    
     if (tasksRes.ok) setTasks(await tasksRes.json());
     if (subjectsRes.ok) {
       const subs = await subjectsRes.json();
@@ -71,60 +70,50 @@ export function Calendar() {
 
   const handleOnboardingSubmit = async () => {
     if (selectedOnboarding.length === 0) return showToast("Выберите хотя бы один предмет", "error");
-    setSavingOnboarding(true);
-    const token = sessionStorage.getItem("impersonation_token") || localStorage.getItem("access_token");
+    const token = getToken();
     const toCreate = EGE_SUBJECTS.filter(s => selectedOnboarding.includes(s.name));
-    
-    const res = await fetch(`${API_URL}/subjects/bulk`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    await fetch(`${API_URL}/subjects/bulk`, {
+      method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(toCreate)
     });
-    
-    if (res.ok) {
-      setShowOnboarding(false);
-      fetchData();
-    } else {
-      showToast("Ошибка при сохранении предметов", "error");
-    }
-    setSavingOnboarding(false);
+    setShowOnboarding(false); fetchData();
   };
 
   const handleSaveTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    const token = sessionStorage.getItem("impersonation_token") || localStorage.getItem("access_token");
+    const token = getToken();
     const method = editingTaskId ? "PUT" : "POST";
     const url = editingTaskId ? `${API_URL}/tasks/${editingTaskId}` : `${API_URL}/tasks/`;
-
     const payload = {
       title: subjects.find(s => s.id === newSubjectId)?.name || "Занятие",
       start_at: new Date(newDate).toISOString(),
       duration_min: newDuration,
       subject_id: newSubjectId || null
     };
-
-    const res = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(payload),
-    });
-
-    if (res.ok) {
-      setIsModalOpen(false);
-      fetchData();
-      showToast(editingTaskId ? "Задача обновлена" : "Занятие добавлено");
-    } else {
-      showToast("Ошибка при сохранении", "error");
-    }
+    const res = await fetch(url, { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
+    if (res.ok) { setIsModalOpen(false); fetchData(); showToast("Сохранено"); }
   };
 
-  const handleDeleteTask = async () => {
-    if (!confirmDelete) return;
-    const token = sessionStorage.getItem("impersonation_token") || localStorage.getItem("access_token");
-    await fetch(`${API_URL}/tasks/${confirmDelete}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
-    setConfirmDelete(null);
+  const toggleStatus = async (e: React.MouseEvent, task: Task) => {
+    e.stopPropagation();
+    const token = getToken();
+    const newStatus = task.status === "done" ? "planned" : "done";
+    
+    // Оптимистичное обновление UI
+    setTasks(tasks.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
+    
+    await fetch(`${API_URL}/tasks/${task.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ status: newStatus })
+    });
+  };
+
+  const handleDeleteTask = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!confirm("Удалить?")) return;
+    await fetch(`${API_URL}/tasks/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } });
     fetchData();
-    showToast("Занятие удалено");
   };
 
   const openEditModal = (task: Task) => {
@@ -144,30 +133,40 @@ export function Calendar() {
   };
 
   const getSubjectColor = (subId: string | null) => subjects.find(s => s.id === subId)?.color || "#6B7280";
-  const getSubjectName = (subId: string | null) => subjects.find(s => s.id === subId)?.name || "Предмет";
 
   const renderWeek = () => {
     const start = startOfWeek(currentDate, { weekStartsOn: 1 });
     const days = Array.from({ length: 7 }).map((_, i) => addDays(start, i));
+    
     return (
       <div className="grid grid-cols-7 gap-2 mt-4">
         {days.map((day, i) => {
-          const dayTasks = tasks.filter(t => isSameDay(new Date(t.start_at), day));
+          const dayTasks = tasks.filter(t => 
+            isSameDay(new Date(t.start_at), day) && 
+            (!filterSubject || t.subject_id === filterSubject)
+          );
           return (
-            <div key={i} className="bg-white border rounded-lg p-2 min-h-[400px]">
-              <div className={`text-center mb-2 pb-2 border-b ${isSameDay(day, new Date()) ? "text-blue-600 font-bold" : ""}`}>
-                <div className="text-xs text-gray-500 uppercase">{format(day, "eee", { locale: ru })}</div>
-                <div className="text-xl">{format(day, "d")}</div>
+            <div key={i} className={`bg-white border rounded-xl p-2 min-h-[400px] shadow-sm ${isSameDay(day, new Date()) ? "ring-2 ring-blue-400" : ""}`}>
+              <div className={`text-center mb-3 pb-2 border-b ${isSameDay(day, new Date()) ? "text-blue-600 font-bold" : "text-gray-600"}`}>
+                <div className="text-xs uppercase">{format(day, "eee", { locale: ru })}</div>
+                <div className="text-2xl">{format(day, "d")}</div>
               </div>
               <div className="space-y-2">
                 {dayTasks.map(t => (
-                  <div key={t.id} onClick={() => openEditModal(t)} className="cursor-pointer text-sm bg-white border-l-4 p-2 rounded shadow-sm hover:shadow-md relative group" style={{ borderLeftColor: getSubjectColor(t.subject_id) }}>
-                    <div className="font-medium flex justify-between">
-                      <span>{format(new Date(t.start_at), "HH:mm")}</span>
-                      <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(t.id); }} className="text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14}/></button>
+                  <div key={t.id} onClick={() => openEditModal(t)} className={`cursor-pointer text-sm bg-white border border-gray-100 border-l-4 p-2 rounded-lg shadow-sm hover:shadow-md transition-all relative group ${t.status === 'done' ? 'opacity-50' : ''}`} style={{ borderLeftColor: getSubjectColor(t.subject_id) }}>
+                    <div className="font-medium flex justify-between items-start">
+                      <span className={t.status === 'done' ? 'line-through text-gray-500' : ''}>{format(new Date(t.start_at), "HH:mm")}</span>
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={(e) => toggleStatus(e, t)} className="text-gray-400 hover:text-green-500">
+                          {t.status === 'done' ? <CheckCircle2 size={16} className="text-green-500" /> : <Circle size={16} />}
+                        </button>
+                        <button onClick={(e) => handleDeleteTask(e, t.id)} className="text-gray-400 hover:text-red-500"><Trash2 size={16}/></button>
+                      </div>
                     </div>
-                    <div className="font-semibold truncate">{getSubjectName(t.subject_id)}</div>
-                    <div className="text-xs text-gray-500">{t.duration_min} мин</div>
+                    <div className={`font-semibold truncate mt-1 ${t.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+                      {subjects.find(s => s.id === t.subject_id)?.name || "Предмет"}
+                    </div>
+                    <div className="text-xs text-gray-400">{t.duration_min} мин</div>
                   </div>
                 ))}
               </div>
@@ -179,92 +178,92 @@ export function Calendar() {
   };
 
   return (
-    <div className="p-4 max-w-6xl mx-auto relative">
+    <div className="p-4 max-w-7xl mx-auto relative">
       {toast && (
-        <div className={`fixed top-4 right-4 z-[100] px-6 py-3 rounded-lg shadow-lg text-white font-medium transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
+        <div className={`fixed top-4 right-4 z-[100] px-6 py-3 rounded-lg shadow-lg text-white font-medium ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
           {toast.msg}
         </div>
       )}
 
-      {confirmDelete && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
-          <div className="bg-white p-6 rounded-xl w-full max-w-sm text-center shadow-xl">
-            <h3 className="text-lg font-bold mb-2">Удалить занятие?</h3>
-            <p className="text-gray-500 mb-6 text-sm">Это действие нельзя отменить.</p>
-            <div className="flex justify-center gap-3">
-              <button onClick={() => setConfirmDelete(null)} className="px-4 py-2 border rounded-lg hover:bg-gray-50">Отмена</button>
-              <button onClick={handleDeleteTask} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Удалить</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showOnboarding && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-8 max-w-lg w-full">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-8 max-w-lg w-full shadow-2xl">
             <h2 className="text-2xl font-bold mb-2 text-center">Какие предметы вы сдаете?</h2>
-            <p className="text-gray-500 mb-6 text-center">Выберите предметы, чтобы мы добавили их в ваш планер.</p>
+            <p className="text-gray-500 mb-6 text-center">Выберите предметы для подготовки.</p>
             <div className="grid grid-cols-2 gap-3 mb-8">
               {EGE_SUBJECTS.map(sub => (
-                <label key={sub.name} className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                <label key={sub.name} className="flex items-center gap-3 p-3 border rounded-xl cursor-pointer hover:bg-gray-50 transition-colors">
                   <input type="checkbox" checked={selectedOnboarding.includes(sub.name)} onChange={(e) => {
                     if (e.target.checked) setSelectedOnboarding([...selectedOnboarding, sub.name]);
                     else setSelectedOnboarding(selectedOnboarding.filter(n => n !== sub.name));
-                  }} className="w-4 h-4 text-blue-600" />
+                  }} className="w-5 h-5 text-blue-600 rounded" />
                   <span className="font-medium">{sub.name}</span>
                 </label>
               ))}
             </div>
-            <button onClick={handleOnboardingSubmit} disabled={savingOnboarding} className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50">
-              {savingOnboarding ? "Сохранение..." : "Сохранить и начать"}
+            <button onClick={handleOnboardingSubmit} className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-colors">
+              Сохранить и начать
             </button>
           </div>
         </div>
       )}
 
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Мой план</h1>
-        <div className="flex gap-3">
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+        <h1 className="text-2xl font-bold text-gray-800">Мой план подготовки</h1>
+        
+        <div className="flex gap-2 items-center flex-wrap">
           <AdminShield role={user?.role} />
-          <Link href="/settings" className="flex items-center justify-center p-2 bg-gray-100 rounded-lg hover:bg-gray-200">
-            <Settings size={20} className="text-gray-600" />
+          <Link href="/stats" className="flex items-center gap-2 px-3 py-2 bg-white border text-gray-700 rounded-xl hover:bg-gray-50 transition-colors">
+            <BarChart2 size={18} /> Статистика
           </Link>
-          <button onClick={openCreateModal} className="flex items-center gap-2 bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800">
-            <Plus size={16} /> Запланировать
+          <Link href="/settings" className="flex items-center justify-center p-2 bg-white border text-gray-600 rounded-xl hover:bg-gray-50 transition-colors">
+            <Settings size={20} />
+          </Link>
+          <button onClick={openCreateModal} className="flex items-center gap-2 bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800 transition-transform active:scale-95 shadow-md">
+            <Plus size={18} /> Запланировать
           </button>
         </div>
       </div>
 
-      <div className="flex items-center gap-4 mb-4">
-        <button onClick={() => setCurrentDate(addDays(currentDate, -7))} className="px-3 py-1 border rounded hover:bg-gray-50">←</button>
-        <span className="font-semibold text-lg capitalize">{format(currentDate, "LLLL yyyy", { locale: ru })}</span>
-        <button onClick={() => setCurrentDate(addDays(currentDate, 7))} className="px-3 py-1 border rounded hover:bg-gray-50">→</button>
-        <button onClick={() => setCurrentDate(new Date())} className="px-3 py-1 text-sm text-blue-600 hover:underline">Сегодня</button>
+      <div className="flex items-center gap-4 mb-4 bg-white p-2 rounded-xl border w-fit shadow-sm">
+        <button onClick={() => setCurrentDate(addDays(currentDate, -7))} className="px-3 py-1 hover:bg-gray-100 rounded-lg">←</button>
+        <span className="font-semibold text-lg min-w-[150px] text-center capitalize">{format(currentDate, "LLLL yyyy", { locale: ru })}</span>
+        <button onClick={() => setCurrentDate(addDays(currentDate, 7))} className="px-3 py-1 hover:bg-gray-100 rounded-lg">→</button>
+        <button onClick={() => setCurrentDate(new Date())} className="px-3 py-1 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg">Сегодня</button>
+      </div>
+
+      <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
+        <button onClick={() => setFilterSubject(null)} className={`px-3 py-1 rounded-lg text-sm border whitespace-nowrap ${!filterSubject ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600'}`}>Все предметы</button>
+        {subjects.map(s => (
+          <button key={s.id} onClick={() => setFilterSubject(s.id)} className={`px-3 py-1 rounded-lg text-sm border whitespace-nowrap ${filterSubject === s.id ? 'text-white border-transparent' : 'bg-white text-gray-600'}`} style={{ backgroundColor: filterSubject === s.id ? s.color : 'transparent', borderColor: s.color }}>
+            {s.name}
+          </button>
+        ))}
       </div>
 
       {renderWeek()}
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <form onSubmit={handleSaveTask} className="bg-white p-6 rounded-xl w-full max-w-sm space-y-4 shadow-xl">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <form onSubmit={handleSaveTask} className="bg-white p-6 rounded-2xl w-full max-w-sm space-y-4 shadow-2xl">
             <h2 className="text-xl font-bold">{editingTaskId ? "Редактировать" : "Новое занятие"}</h2>
             <div>
-              <label className="text-sm text-gray-600">Предмет</label>
-              <select value={newSubjectId} onChange={e => setNewSubjectId(e.target.value)} className="w-full border p-2 rounded-lg mt-1">
+              <label className="text-sm font-medium text-gray-700">Предмет</label>
+              <select value={newSubjectId} onChange={e => setNewSubjectId(e.target.value)} className="w-full border p-3 rounded-xl mt-1 bg-gray-50">
                 {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-sm text-gray-600">Начало</label>
-              <input type="datetime-local" required value={newDate} onChange={e => setNewDate(e.target.value)} className="w-full border p-2 rounded-lg mt-1" />
+              <label className="text-sm font-medium text-gray-700">Начало</label>
+              <input type="datetime-local" required value={newDate} onChange={e => setNewDate(e.target.value)} className="w-full border p-3 rounded-xl mt-1 bg-gray-50" />
             </div>
             <div>
-              <label className="text-sm text-gray-600">Длительность (минут)</label>
-              <input type="number" required value={newDuration} onChange={e => setNewDuration(Number(e.target.value))} className="w-full border p-2 rounded-lg mt-1" />
+              <label className="text-sm font-medium text-gray-700">Длительность (минут)</label>
+              <input type="number" required value={newDuration} onChange={e => setNewDuration(Number(e.target.value))} className="w-full border p-3 rounded-xl mt-1 bg-gray-50" />
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Отмена</button>
-              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg">Сохранить</button>
+              <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-xl">Отмена</button>
+              <button type="submit" className="px-5 py-2 bg-blue-600 text-white rounded-xl shadow hover:bg-blue-700">Сохранить</button>
             </div>
           </form>
         </div>
