@@ -47,6 +47,8 @@ export function Calendar() {
     const token = getToken();
     const method = editingTaskId ? "PUT" : "POST";
     const url = editingTaskId ? `${API_URL}/tasks/${editingTaskId}` : `${API_URL}/tasks/`;
+    
+    // Браузер берет локальное время из инпута и переводит в UTC для сервера
     const payload = { title: subjects.find(s => s.id === newSubjectId)?.name || "Занятие", start_at: new Date(newDate).toISOString(), duration_min: newDuration, subject_id: newSubjectId };
     
     const res = await fetch(url, { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
@@ -68,7 +70,6 @@ export function Calendar() {
 
   const getSubjectColor = (id: string | null) => subjects.find(s => s.id === id)?.color || "#ccc";
 
-  // Мобильная адаптация: на телефоне 1 колонка, на компе 7
   const renderDays = () => {
     const start = startOfWeek(currentDate, { weekStartsOn: 1 });
     const days = Array.from({ length: 7 }).map((_, i) => addDays(start, i));
@@ -90,7 +91,10 @@ export function Calendar() {
                   <div key={t.id} onClick={() => { setEditingTaskId(t.id); setNewSubjectId(t.subject_id || ""); setNewDate(format(new Date(t.start_at), "yyyy-MM-dd'T'HH:mm")); setNewDuration(t.duration_min); setIsModalOpen(true); }} 
                        className={`cursor-pointer text-sm bg-white border border-gray-100 border-l-4 p-2 rounded-lg shadow-sm relative group ${t.status === 'done' ? 'opacity-50' : ''}`} style={{ borderLeftColor: getSubjectColor(t.subject_id) }}>
                     <div className="font-medium flex justify-between items-start">
-                      <span className={t.status === 'done' ? 'line-through text-gray-500' : ''}>{format(new Date(t.start_at), "HH:mm")}</span>
+                      <span className={t.status === 'done' ? 'line-through text-gray-500' : ''}>
+                        {/* Браузер автоматически конвертирует UTC из базы в ваше локальное время */}
+                        {format(new Date(t.start_at), "HH:mm")}
+                      </span>
                       <div className="flex gap-1">
                         <button onClick={(e) => toggleStatus(e, t)} className="text-gray-400 hover:text-green-500">
                           {t.status === 'done' ? <CheckCircle2 size={18} className="text-green-500" /> : <Circle size={18} />}
@@ -115,7 +119,6 @@ export function Calendar() {
     <div className="p-4 max-w-7xl mx-auto relative pb-20 md:pb-4">
       {toast && <div className={`fixed top-4 right-4 z-[100] px-4 py-2 rounded-lg shadow-lg text-white text-sm ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{toast.msg}</div>}
 
-      {/* Кастомная модалка удаления */}
       {confirmDelete && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
           <div className="bg-white p-6 rounded-2xl w-full max-w-sm text-center shadow-2xl">
@@ -139,7 +142,6 @@ export function Calendar() {
         </div>
       </div>
 
-      {/* Кнопка добавления на мобилке (внизу экрана) */}
       <button onClick={() => { setEditingTaskId(null); setNewSubjectId(subjects[0]?.id || ""); setNewDate(format(new Date(), "yyyy-MM-dd'T'HH:mm")); setNewDuration(60); setIsModalOpen(true); }} className="md:hidden fixed bottom-6 right-6 bg-blue-600 text-white p-4 rounded-full shadow-lg z-40 active:scale-95 transition-transform"><Plus size={24} /></button>
 
       <div className="flex items-center gap-2 mb-4 bg-white p-2 rounded-xl border w-fit shadow-sm overflow-x-auto max-w-full">
