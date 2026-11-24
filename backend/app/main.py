@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings, APP_START_TIME
 from app.db import engine, async_session
 from app.models import Base, User
+
+# Импорт всех роутеров
 from app.auth.router import router as auth_router
 from app.tasks.router import router as tasks_router
 from app.sessions.router import router as sessions_router
@@ -12,6 +14,8 @@ from app.activity.router import router as activity_router
 from app.admin.router import router as admin_router
 from app.diagnostics.router import router as diagnostics_router
 from app.subjects.router import router as subjects_router
+from app.public.router import router as public_router # <--- ВАЖНО: Для публичной статистики
+
 from app.scheduler import scheduler
 from app.bot.bot import bot, dp
 from passlib.context import CryptContext
@@ -83,6 +87,7 @@ async def real_ip(request: Request, call_next):
     request.state.client_ip = request.client.host if request.client else None
     return await call_next(request)
 
+# Подключение всех роутеров к приложению
 app.include_router(auth_router)
 app.include_router(tasks_router)
 app.include_router(sessions_router)
@@ -90,6 +95,7 @@ app.include_router(activity_router)
 app.include_router(admin_router)
 app.include_router(diagnostics_router)
 app.include_router(subjects_router)
+app.include_router(public_router) # <--- ВАЖНО: Подключаем публичную статистику
 
 
 @app.get("/health")
