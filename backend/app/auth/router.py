@@ -123,7 +123,9 @@ async def me(current: User = Depends(get_current_user)):
 async def update_me(data: UserUpdate, request: Request, current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if data.notification_offset is not None:
         current.notification_offset = data.notification_offset
-        await log_action(request, db, "SETTINGS_UPDATE", before_state={"notification_offset": current.notification_offset})
+    if data.timezone is not None:
+        current.timezone = data.timezone
+    await log_action(request, db, "SETTINGS_UPDATE")
     await db.commit()
     return {"ok": True}
 
