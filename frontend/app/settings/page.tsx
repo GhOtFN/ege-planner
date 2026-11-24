@@ -1,7 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Send, Link as LinkIcon, CheckCircle2, KeyRound, Share2, Bell } from "lucide-react";
+import { Trash2, Send, CheckCircle2, KeyRound, Share2, Bell, ArrowLeft } from "lucide-react";
+import Link from "next/link";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 const BOT_NAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_NAME || "вашего_бота";
@@ -19,6 +20,7 @@ function urlBase64ToUint8Array(base64String: string) {
 export default function SettingsPage() {
   const router = useRouter();
   const [offset, setOffset] = useState(30);
+  const [timezone, setTimezone] = useState("Europe/Moscow");
   const [telegramId, setTelegramId] = useState<number | null>(null);
   const [linkCode, setLinkCode] = useState("");
   const [subjects, setSubjects] = useState<any[]>([]);
@@ -43,12 +45,12 @@ export default function SettingsPage() {
     if (meRes.ok) {
       const me = await meRes.json();
       setOffset(me.notification_offset || 30);
+      setTimezone(me.timezone || "Europe/Moscow");
       setTelegramId(me.telegram_id || null);
       if (me.share_token) setShareLink(`${window.location.origin}/share/${me.share_token}`);
     }
     if (subRes.ok) setSubjects(await subRes.json());
     
-    // Проверяем статус Push
     if ('serviceWorker' in navigator) {
       const reg = await navigator.serviceWorker.getRegistration();
       const sub = await reg?.pushManager.getSubscription();
@@ -59,27 +61,19 @@ export default function SettingsPage() {
   useEffect(() => { fetchData(); }, []);
 
   const handleSave = async () => {
-    await fetch(`${API_URL}/auth/me`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` }, body: JSON.stringify({ notification_offset: Number(offset) }) });
+    await fetch(`${API_URL}/auth/me`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` }, body: JSON.stringify({ notification_offset: Number(offset), timezone }) });
     showToast("Сохранено");
   };
 
   const subscribePush = async () => {
     if (!VAPID_PUBLIC_KEY) return showToast("VAPID-ключ не настроен", "error");
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return showToast("Браузер не поддерживает Push. На iOS добавьте сайт на экран Домой", "error");
+    if (!('serviceWorker' in navigator)) return showToast("Браузер не поддерживает SW", "error");
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') return showToast("Разрешение не дано", "error");
     const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-    });
-    const res = await fetch(`${API_URL}/auth/push-subscribe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-      body: JSON.stringify(sub),
-    });
-    if (res.ok) { setPushEnabled(true); showToast("Push подключен!"); }
-    else showToast("Ошибка подписки", "error");
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
+    await fetch(`${API_URL}/auth/push-subscribe`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` }, body: JSON.stringify(sub) });
+    setPushEnabled(true); showToast("Push подключен!");
   };
 
   const testPush = async () => {
@@ -128,7 +122,13 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-3xl mx-auto p-4 md:p-6 mt-4 md:mt-10 space-y-4 pb-20">
+      {/* Кнопка Назад */}
+      <Link href="/" className="inline-flex items-center gap-2 text-blue-600 hover:underline mb-2">
+        <ArrowLeft size={20} /> Вернуться на главный экран
+      </Link>
+
       {toast && <div className={`fixed top-4 right-4 z-[100] px-4 py-2 rounded-lg shadow-lg text-white text-sm ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{toast.msg}</div>}
+      
       {confirmModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
           <div className="bg-white p-6 rounded-2xl w-full max-w-sm text-center shadow-2xl">
@@ -142,18 +142,34 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {/* Время и Часовой пояс */}
+      <div className="bg-white rounded-2xl shadow-sm p-5 border space-y-3">
+        <label className="text-sm font-medium">За сколько минут напоминать?</label>
+        <input type="number" value={offset} onChange={e => setOffset(Number(e.target.value))} className="w-full border p-2 rounded-xl"/>
+        
+        <label className="text-sm font-medium">Ваш часовой пояс</label>
+        <select value={timezone} onChange={e => setTimezone(e.target.value)} className="w-full border p-2 rounded-xl bg-gray-50">
+          <option value="Europe/Moscow">Москва (UTC+3)</option>
+          <option value="Asia/Yekaterinburg">Екатеринбург (UTC+5)</option>
+          <option value="Asia/Novosibirsk">Новосибирск (UTC+7)</option>
+          <option value="Asia/Krasnoyarsk">Красноярск (UTC+7)</option>
+          <option value="Asia/Irkutsk">Иркутск (UTC+8)</option>
+          <option value="Asia/Yakutsk">Якутск (UTC+9)</option>
+          <option value="Asia/Vladivostok">Владивосток (UTC+10)</option>
+        </select>
+        <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm mt-2">Сохранить</button>
+      </div>
+
       {/* Push */}
       <div className="bg-white rounded-2xl shadow-sm p-5 border">
         <h3 className="font-bold mb-2 flex items-center gap-2"><Bell size={18}/> Push-уведомления</h3>
-        <p className="text-xs text-gray-500 mb-3">На iPhone: откройте сайт в Safari → «Поделиться» → «На экран Домой» → откройте с рабочего стола → нажмите кнопку ниже.</p>
+        <p className="text-xs text-gray-500 mb-3">На iPhone добавьте сайт на экран «Домой» и откройте оттуда.</p>
         {pushEnabled ? (
           <div className="flex gap-2">
             <span className="flex-1 bg-green-50 text-green-700 p-2 rounded-xl text-sm flex items-center gap-2"><CheckCircle2 size={16}/> Подключено</span>
             <button onClick={testPush} className="px-3 py-2 bg-blue-100 text-blue-700 rounded-xl text-sm">Тест</button>
           </div>
-        ) : (
-          <button onClick={subscribePush} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm">Подключить Push</button>
-        )}
+        ) : <button onClick={subscribePush} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm">Подключить Push</button>}
       </div>
 
       {/* Telegram */}
@@ -207,22 +223,16 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Уведомления offset */}
-      <div className="bg-white rounded-2xl shadow-sm p-5 border">
-        <label className="text-sm font-medium">За сколько минут напоминать?</label>
-        <input type="number" value={offset} onChange={e => setOffset(Number(e.target.value))} className="mt-1 w-full border p-2 rounded-xl"/>
-      </div>
-
       {/* Пароль */}
       <div className="bg-white rounded-2xl shadow-sm p-5 border space-y-3">
         <h3 className="font-bold flex items-center gap-2"><KeyRound size={18}/> Смена пароля</h3>
         <input type="password" placeholder="Текущий пароль" value={oldPassword} onChange={e => setOldPassword(e.target.value)} className="w-full border p-2 rounded-xl text-sm"/>
         <input type="password" placeholder="Новый пароль" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full border p-2 rounded-xl text-sm"/>
-        <button onClick={handleChangePassword} className="px-4 py-2 bg-gray-800 text-white rounded-xl text-sm">Изменить</button>
-        <div className="pt-3 border-t flex justify-between">
-          <button onClick={() => { localStorage.clear(); sessionStorage.clear(); router.push("/"); window.location.reload(); }} className="text-red-600 text-sm">Выйти из аккаунта</button>
-          <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm">Сохранить</button>
-        </div>
+        <button onClick={handleChangePassword} className="px-4 py-2 bg-gray-800 text-white rounded-xl text-sm">Изменить пароль</button>
+      </div>
+
+      <div className="pt-4 flex justify-center pb-10">
+        <button onClick={() => { localStorage.clear(); sessionStorage.clear(); router.push("/"); window.location.reload(); }} className="text-red-600 font-medium hover:underline">Выйти из аккаунта</button>
       </div>
     </div>
   );
