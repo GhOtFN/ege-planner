@@ -4,17 +4,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from passlib.context import CryptContext
 from datetime import datetime, timezone, timedelta
 from app.db import get_db
-from app.models import User, Session, TelegramLinkCode
-from app.schemas import UserRegister, UserLogin, TokenResponse, RefreshRequest, UserUpdate, TelegramLinkRequest, PasswordChange
+from app.models import User, Session, TelegramLinkCode, PushSubscription
+from app.schemas import UserRegister, UserLogin, TokenResponse, RefreshRequest, UserUpdate, TelegramLinkRequest, PasswordChange, PushSubscriptionCreate
 from app.auth.jwt import create_access_token, create_refresh_token, decode_refresh
 from app.auth.deps import get_current_user
 from app.bot.bot import bot, send_notification
 from app.activity.utils import log_action
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from app.models import PushSubscription
-from app.schemas import PushSubscriptionCreate
-import secrets
 import hashlib
+import secrets
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -117,6 +115,7 @@ async def me(current: User = Depends(get_current_user)):
         "role": current.role,
         "telegram_id": current.telegram_id,
         "notification_offset": current.notification_offset,
+        "share_token": current.share_token,
         "timezone": current.timezone,
     }
 
@@ -188,7 +187,8 @@ async def test_telegram(current: User = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(500, f"Ошибка отправки: {str(e)}")
     return {"ok": True}
-    @router.post("/share-token")
+
+@router.post("/share-token")
 async def generate_share_token(current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if not current.share_token:
         current.share_token = secrets.token_urlsafe(16)
@@ -197,7 +197,6 @@ async def generate_share_token(current: User = Depends(get_current_user), db: As
 
 @router.post("/push-subscribe")
 async def subscribe_push(data: PushSubscriptionCreate, current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    # Обновляем или создаем
     res = await db.execute(select(PushSubscription).where(PushSubscription.endpoint == data.endpoint))
     sub = res.scalar_one_or_none()
     if not sub:
@@ -208,3 +207,8 @@ async def subscribe_push(data: PushSubscriptionCreate, current: User = Depends(g
         sub.auth = data.keys.auth
     await db.commit()
     return {"ok": True}
+
+@router.post("/test-push")
+async def test_push(current: User = Depends(get_current_user)):
+    # Заглушка для теста Push
+    return {"ok": True, "message": "Push отправлен (тестовый режим)"}
