@@ -281,59 +281,6 @@ async def show_stats(callback: CallbackQuery):
 # ==========================================
 # 4. МИНИ-ТЕСТЫ
 # ==========================================
-@router.callback_query(F.data == "test_start")
-async def test_start(callback: CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=sub, callback_data=f"test_sub_{sub}")] for sub in QUESTIONS.keys()
-    ] + [[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_main")]])
-    await callback.message.edit_text("Выбери предмет для мини-теста (5 вопросов):", reply_markup=kb)
-
-@router.callback_query(F.data.startswith("test_sub_"))
-async def test_start_subject(callback: CallbackQuery, state: FSMContext):
-    sub = callback.data.replace("test_sub_", "")
-    q_list = random.sample(QUESTIONS.get(sub, []), min(5, len(QUESTIONS[sub])))
-    
-    if not q_list:
-        return await callback.answer("Вопросы для этого предмета пока не добавлены.", show_alert=True)
-
-    await state.update_data(sub=sub, questions=q_list, current_q=0, score=0)
-    await state.set_state(TestStates.answering)
-    await send_question(callback.message, state)
-
-async def send_question(message: Message, state: FSMContext):
-    data = await state.get_data()
-    idx = data["current_q"]
-    questions = data["questions"]
-    
-    if idx >= len(questions):
-        # Тест окончен
-        score = data["score"]
-        total = len(questions)
-        await message.edit_text(f"🏁 Тест завершен!\nТвой результат: <b>{score} из {total}</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="В меню", callback_data="menu_main")]]))
-        await state.clear()
-        return
-
-    q = questions[idx]
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=opt, callback_data=f"ans_{opt}")] for opt in q["opts"]
-    ])
-    await message.edit_text(f"Вопрос {idx+1}/{len(questions)}:\n\n<b>{q['q']}</b>", parse_mode="HTML", reply_markup=kb)
-
-@router.callback_query(F.data.startswith("ans_"), TestStates.answering)
-async def handle_answer(callback: CallbackQuery, state: FSMContext):
-    answer = callback.data.replace("ans_", "")
-    data = await state.get_data()
-    q = data["questions"][data["current_q"]]
-    
-    if answer == q["ans"]:
-        await callback.answer("✅ Верно!", show_alert=False)
-        await state.update_data(score=data["score"] + 1)
-    else:
-        await callback.answer(f"❌ Ошибка. Правильно: {q['ans']}", show_alert=True)
-        
-    await state.update_data(current_q=data["current_q"] + 1)
-    await send_question(callback.message, state)
-
 # ==========================================
 # 5. УМНЫЕ НАПОМИНАНИЯ (Фоновая функция)
 # ==========================================
