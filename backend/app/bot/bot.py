@@ -24,9 +24,6 @@ WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 class AddTaskStates(StatesGroup):
     choosing_subject = State()
 
-class TestStates(StatesGroup):
-    answering = State()
-
 # ==========================================
 # БАЗА ВОПРОСОВ ДЛЯ МИНИ-ТЕСТОВ
 # ==========================================
