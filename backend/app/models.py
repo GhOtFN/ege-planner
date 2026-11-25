@@ -16,6 +16,10 @@ class User(Base):
     notification_offset: Mapped[int] = mapped_column(Integer, default=30)
     share_token: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     timezone: Mapped[str] = mapped_column(String, default="Europe/Moscow")
+    streak_days: Mapped[int] = mapped_column(Integer, default=0)
+    last_active_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    exam_dates: Mapped[dict | None] = mapped_column(JSON, default=dict) # {"Математика": "2025-06-01", ...}
+    
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
     __table_args__ = (CheckConstraint("role IN ('user','admin','superadmin')"),)
 
@@ -69,7 +73,12 @@ class Task(Base):
     duration_min: Mapped[int] = mapped_column(Integer, default=60)
     priority: Mapped[int] = mapped_column(SmallInteger, default=2)
     status: Mapped[str] = mapped_column(String, default="planned")
-    recurrence_rule: Mapped[str | None] = mapped_column(String, nullable=True)
+    
+    # Новые поля
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True) # Заметки
+    recurrence_rule: Mapped[str | None] = mapped_column(String, nullable=True) # Для повторяющихся (RRULE)
+    is_deadline: Mapped[bool] = mapped_column(Boolean, default=False) # Дедлайн по теме (без времени)
+    
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
 class Reminder(Base):
@@ -79,7 +88,17 @@ class Reminder(Base):
     offset_min: Mapped[int] = mapped_column(Integer, default=30)
     channel: Mapped[str] = mapped_column(String, default="telegram")
     sent_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
-
+    
+class MockExam(Base):
+    __tablename__ = "mock_exams"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    subject_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"))
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_score: Mapped[int] = mapped_column(Integer, default=100)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    
 class ActivityEvent(Base):
     __tablename__ = "activity_events"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
