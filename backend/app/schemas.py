@@ -2,6 +2,7 @@ from pydantic import BaseModel, EmailStr
 from uuid import UUID
 from datetime import datetime, date
 
+# --- Авторизация и пользователи ---
 class UserRegister(BaseModel):
     email: EmailStr
     password: str
@@ -30,10 +31,20 @@ class PasswordChange(BaseModel):
 class TelegramLinkRequest(BaseModel):
     code: str
 
+# --- Админка ---
+class AdminActionRequest(BaseModel):
+    password: str
+
+class ImpersonateResponse(BaseModel):
+    access_token: str
+    target_user: dict
+
+# --- Предметы ---
 class SubjectCreate(BaseModel):
     name: str
     color: str
 
+# --- Задачи ---
 class TaskCreate(BaseModel):
     title: str
     start_at: datetime
@@ -51,12 +62,14 @@ class TaskUpdate(BaseModel):
     status: str | None = None
     notes: str | None = None
 
+# --- Пробники (Mock Exams) ---
 class MockExamCreate(BaseModel):
     subject_id: UUID
     date: date
     score: int
     max_score: int = 100
 
+# --- Push-уведомления ---
 class PushSubscriptionKeys(BaseModel):
     p256dh: str
     auth: str
