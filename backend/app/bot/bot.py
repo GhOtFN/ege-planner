@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select, func
 from app.config import settings
 from app.db import async_session
@@ -16,24 +18,68 @@ dp.include_router(router)
 
 WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
+# ==========================================
+# СОСТОЯНИЯ (FSM)
+# ==========================================
+class AddTaskStates(StatesGroup):
+    choosing_subject = State()
+
+class TestStates(StatesGroup):
+    answering = State()
+
+# ==========================================
+# БАЗА ВОПРОСОВ ДЛЯ МИНИ-ТЕСТОВ
+# ==========================================
+QUESTIONS = {
+    "Математика": [
+        {"q": "Чему равна производная x^2?", "opts": ["x", "2x", "x^3"], "ans": "2x"},
+        {"q": "Сколько будет sin(90°)?", "opts": ["0", "1", "-1"], "ans": "1"},
+        {"q": "Решите уравнение: 2x = 10", "opts": ["2", "5", "10"], "ans": "5"},
+        {"q": "Чему равен логарифм log_2(8)?", "opts": ["2", "3", "4"], "ans": "3"},
+        {"q": "Сколько градусов в сумме углов треугольника?", "opts": ["90", "180", "360"], "ans": "180"},
+    ],
+    "Русский язык": [
+        {"q": "В каком слове ударение на последний слог?", "opts": ["звОнит", "тОрты", "жалюзИ"], "ans": "жалюзИ"},
+        {"q": "Сколько букв в русском алфавите?", "opts": ["31", "33", "35"], "ans": "33"},
+        {"q": "Какое слово пишется с двумя Н?", "opts": ["варё_ый", "купле_ый", "серебря_ый"], "ans": "купле_ый"},
+        {"q": "Какой падеж отвечает на вопрос 'Кому?'", "opts": ["Родительный", "Дательный", "Винительный"], "ans": "Дательный"},
+        {"q": "Найдите причастие", "opts": ["бегающий", "бегать", "бегом"], "ans": "бегающий"},
+    ],
+    "Информатика": [
+        {"q": "Сколько бит в одном байте?", "opts": ["4", "8", "16"], "ans": "8"},
+        {"q": "Что означает аббревиатура CPU?", "opts": ["Оперативная память", "Процессор", "Жесткий диск"], "ans": "Процессор"},
+        {"q": "В какой системе счисления 10 = 2 в десятичной?", "opts": ["Двоичная", "Восьмеричная", "Шестнадцатеричная"], "ans": "Двоичная"},
+        {"q": "Какой логической операции соответствует И?", "opts": ["OR", "AND", "NOT"], "ans": "AND"},
+        {"q": "Что такое IP-адрес?", "opts": ["Номер телефона", "Уникальный адрес устройства в сети", "Название сайта"], "ans": "Уникальный адрес устройства в сети"},
+    ]
+}
+
+# ==========================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ==========================================
 def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Создать занятие", callback_data="create_start")],
         [InlineKeyboardButton(text="📅 Расписание", callback_data="schedule_start")],
+        [InlineKeyboardButton(text="🧠 Мини-тест", callback_data="test_start")],
         [InlineKeyboardButton(text="📊 Статистика", callback_data="stats_menu")],
     ])
 
 def back_btn():
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ В меню", callback_data="menu_main")]])
 
-def get_user_tz(user):
+def get_user_tz(user: User):
     try:
         return ZoneInfo(user.timezone or "Europe/Moscow")
     except Exception:
         return ZoneInfo("Europe/Moscow")
 
+# ==========================================
+# СТАРТ И ГЛАВНОЕ МЕНЮ
+# ==========================================
 @router.message(CommandStart())
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, state: FSMContext):
+    await state.clear()
     async with async_session() as db:
         res = await db.execute(select(User).where(User.telegram_id == message.from_user.id))
         user = res.scalar_one_or_none()
@@ -46,19 +92,24 @@ async def cmd_start(message: Message):
         await message.answer(f"👋 Привет! Твой код для привязки:\n\n<b>{code}</b>\n\nВведи его в настройках на сайте.", parse_mode="HTML")
 
 @router.callback_query(F.data == "menu_main")
-async def back_to_menu(callback: CallbackQuery):
+async def back_to_menu(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
     await callback.message.edit_text("Главное меню:", reply_markup=main_menu())
 
-# ===== СОЗДАНИЕ =====
+# ==========================================
+# 1. СОЗДАНИЕ ЗАНЯТИЯ (Кнопки)
+# ==========================================
 @router.callback_query(F.data == "create_start")
 async def create_start(callback: CallbackQuery):
     async with async_session() as db:
         res = await db.execute(select(User).where(User.telegram_id == callback.from_user.id))
         user = res.scalar_one_or_none()
         if not user: return await callback.answer("Напиши /start")
+        
         subs = await db.execute(select(Subject).where(Subject.user_id == user.id))
         subjects = subs.scalars().all()
         if not subjects: return await callback.answer("Добавь предметы на сайте!", show_alert=True)
+        
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=s.name, callback_data=f"csub_{s.id}")] for s in subjects] + [[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_main")]])
         await callback.message.edit_text("Выбери предмет:", reply_markup=kb)
 
@@ -110,7 +161,9 @@ async def create_duration(callback: CallbackQuery):
         await db.commit()
     await callback.message.edit_text(f"✅ Создано: {target_local.strftime('%d.%m %H:%M')} ({dur} ч)", reply_markup=back_btn())
 
-# ===== РАСПИСАНИЕ =====
+# ==========================================
+# 2. РАСПИСАНИЕ
+# ==========================================
 @router.callback_query(F.data == "schedule_start")
 async def schedule_start(callback: CallbackQuery):
     async with async_session() as db:
@@ -153,7 +206,6 @@ async def view_day(callback: CallbackQuery):
         status = "✅" if t.status == "done" else "⏳"
         text += f"{status} {local_dt.strftime('%H:%M')} — {sub_name or 'Без предмета'} ({t.duration_min} мин)\n"
         
-        # Кнопки управления каждой задачей
         row_btns = []
         if t.status != "done":
             row_btns.append(InlineKeyboardButton(text=f"✅ Выполнено", callback_data=f"markdone_{t.id}_{days}"))
@@ -187,7 +239,9 @@ async def delete_task(callback: CallbackQuery):
     callback.data = f"view_{days}"
     await view_day(callback)
 
-# ===== СТАТИСТИКА =====
+# ==========================================
+# 3. СТАТИСТИКА
+# ==========================================
 @router.callback_query(F.data == "stats_menu")
 async def stats_menu(callback: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -224,6 +278,110 @@ async def show_stats(callback: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="stats_menu")]])
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
+# ==========================================
+# 4. МИНИ-ТЕСТЫ
+# ==========================================
+@router.callback_query(F.data == "test_start")
+async def test_start(callback: CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=sub, callback_data=f"test_sub_{sub}")] for sub in QUESTIONS.keys()
+    ] + [[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_main")]])
+    await callback.message.edit_text("Выбери предмет для мини-теста (5 вопросов):", reply_markup=kb)
+
+@router.callback_query(F.data.startswith("test_sub_"))
+async def test_start_subject(callback: CallbackQuery, state: FSMContext):
+    sub = callback.data.replace("test_sub_", "")
+    q_list = random.sample(QUESTIONS.get(sub, []), min(5, len(QUESTIONS[sub])))
+    
+    if not q_list:
+        return await callback.answer("Вопросы для этого предмета пока не добавлены.", show_alert=True)
+
+    await state.update_data(sub=sub, questions=q_list, current_q=0, score=0)
+    await state.set_state(TestStates.answering)
+    await send_question(callback.message, state)
+
+async def send_question(message: Message, state: FSMContext):
+    data = await state.get_data()
+    idx = data["current_q"]
+    questions = data["questions"]
+    
+    if idx >= len(questions):
+        # Тест окончен
+        score = data["score"]
+        total = len(questions)
+        await message.edit_text(f"🏁 Тест завершен!\nТвой результат: <b>{score} из {total}</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="В меню", callback_data="menu_main")]]))
+        await state.clear()
+        return
+
+    q = questions[idx]
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=opt, callback_data=f"ans_{opt}")] for opt in q["opts"]
+    ])
+    await message.edit_text(f"Вопрос {idx+1}/{len(questions)}:\n\n<b>{q['q']}</b>", parse_mode="HTML", reply_markup=kb)
+
+@router.callback_query(F.data.startswith("ans_"), TestStates.answering)
+async def handle_answer(callback: CallbackQuery, state: FSMContext):
+    answer = callback.data.replace("ans_", "")
+    data = await state.get_data()
+    q = data["questions"][data["current_q"]]
+    
+    if answer == q["ans"]:
+        await callback.answer("✅ Верно!", show_alert=False)
+        await state.update_data(score=data["score"] + 1)
+    else:
+        await callback.answer(f"❌ Ошибка. Правильно: {q['ans']}", show_alert=True)
+        
+    await state.update_data(current_q=data["current_q"] + 1)
+    await send_question(callback.message, state)
+
+# ==========================================
+# 5. УМНЫЕ НАПОМИНАНИЯ (Фоновая функция)
+# ==========================================
+async def send_smart_reminders():
+    async with async_session() as db:
+        users = await db.execute(select(User))
+        for user in users.scalars().all():
+            if not user.telegram_id: continue
+            
+            # Ищем предметы, по которым не было выполнений > 5 дней
+            subs = await db.execute(select(Subject).where(Subject.user_id == user.id))
+            for sub in subs.scalars().all():
+                last_done = await db.execute(
+                    select(func.max(Task.start_at)).where(
+                        Task.user_id == user.id, 
+                        Task.subject_id == sub.id, 
+                        Task.status == "done"
+                    )
+                )
+                last_date = last_done.scalar()
+                
+                if not last_date or (datetime.now(timezone.utc) - last_date).days >= 5:
+                    kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="Запланировать на завтра", callback_data=f"remind_{sub.id}")]
+                    ])
+                    try:
+                        await bot.send_message(user.telegram_id, f"😴 Ты не занимался предметом <b>{sub.name}</b> уже более 5 дней. Пора наверстать!", parse_mode="HTML", reply_markup=kb)
+                    except Exception: pass
+
+@router.callback_query(F.data.startswith("remind_"))
+async def handle_remind(callback: CallbackQuery):
+    sub_id = callback.data.replace("remind_", "")
+    async with async_session() as db:
+        res = await db.execute(select(User).where(User.telegram_id == callback.from_user.id))
+        user = res.scalar_one()
+        tz = get_user_tz(user)
+        
+        target_local = (datetime.now(tz) + timedelta(days=1)).replace(hour=18, minute=0, second=0, microsecond=0)
+        dt_utc = target_local.astimezone(timezone.utc)
+        
+        db.add(Task(user_id=user.id, title="Занятие", start_at=dt_utc, duration_min=60, subject_id=sub_id))
+        await db.commit()
+    
+    await callback.message.edit_text("✅ Отлично! Занятие добавлено на завтра на 18:00.")
+
+# ==========================================
+# ВСПОМОГАТЕЛЬНЫЕ
+# ==========================================
 async def send_notification(telegram_id: int, text: str):
     if bot:
         try: await bot.send_message(telegram_id, text)
