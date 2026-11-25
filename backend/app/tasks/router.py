@@ -214,3 +214,54 @@ async def get_stats(
     db: AsyncSession = Depends(get_db)
 ):
     return await _build_stats(current.id, period, db)
+    
+@router.post("/generate-template")
+async def generate_template(
+    template: str, 
+    current: User = Depends(get_current_user), 
+    db: AsyncSession = Depends(get_db)
+):
+    # Получаем все предметы пользователя
+    subs_res = await db.execute(select(Subject).where(Subject.user_id == current.id))
+    subjects = subs_res.scalars().all()
+    if not subjects:
+        raise HTTPException(400, "Сначала добавьте предметы в настройках")
+
+    # Настройки шаблона: по сколько часов в день и сколько дней в неделю
+    if template == "intensive": # Интенсив: каждый день по 3 часа
+        days_of_week = [0, 1, 2, 3, 4, 5, 6] 
+        hours_per_day = 3
+    else: # Стандарт: Пн, Ср, Пт по 2 часа
+        days_of_week = [0, 2, 4]
+        hours_per_day = 2
+
+    now = datetime.now(timezone.utc)
+    created_count = 0
+
+    # Генерируем расписание на 4 недели вперед
+    for week in range(4):
+        for day_idx in days_of_week:
+            # Вычисляем дату
+            target_date = now + timedelta(days=(week * 7 + day_idx))
+            start_time = target_date.replace(hour=16, minute=0, second=0, microsecond=0) # Начинаем в 16:00
+            
+            # Распределяем предметы по дням
+            subject = subjects[created_count % len(subjects)]
+            
+            task = Task(
+                user_id=current.id,
+                subject_id=subject.id,
+                title=f"{subject.name} (Автоплан)",
+                start_at=start_time,
+                duration_min=hours_per_day * 60,
+                status="planned"
+            )
+            db.add(task)
+            await db.flush()
+            
+            # Добавляем напоминание
+            db.add(Reminder(task_id=task.id, offset_min=current.notification_offset))
+            created_count += 1
+
+    await db.commit()
+    return {"ok": True, "created": created_count}
