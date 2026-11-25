@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { format, startOfWeek, addDays, isSameDay } from "date-fns";
 import { ru } from "date-fns/locale";
-import { Plus, Settings, Trash2, CheckCircle2, Circle, BarChart2, StickyNote, AlertCircle } from "lucide-react";
+import { Plus, Settings, Trash2, CheckCircle2, Circle, BarChart2, StickyNote, AlertCircle, Target } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "../providers/AuthProvider";
 import { AdminShield } from "./AdminShield";
@@ -219,7 +219,6 @@ export function Calendar() {
                     
                     <div className="flex justify-between items-center mt-1">
                       <div className="text-[11px] text-gray-400">{t.duration_min} мин</div>
-                      {/* Исправлена ошибка TypeScript с title */}
                       {t.notes && (
                         <span title={t.notes}>
                           <StickyNote size={12} className="text-amber-400" />
@@ -273,8 +272,15 @@ export function Calendar() {
         <h1 className="text-xl md:text-2xl font-bold text-gray-800">Мой план</h1>
         <div className="flex gap-2 items-center">
           <AdminShield role={user?.role} />
-          <Link href="/stats" className="p-2.5 bg-white border rounded-xl text-gray-600 hover:bg-gray-50 shadow-sm transition-colors" title="Статистика"><BarChart2 size={20} /></Link>
-          <Link href="/settings" className="p-2.5 bg-white border rounded-xl text-gray-600 hover:bg-gray-50 shadow-sm transition-colors" title="Настройки"><Settings size={20} /></Link>
+          <Link href="/exams" className="p-2.5 bg-white border rounded-xl text-gray-600 hover:bg-gray-50 shadow-sm transition-colors" title="Трекер пробников">
+            <Target size={20} />
+          </Link>
+          <Link href="/stats" className="p-2.5 bg-white border rounded-xl text-gray-600 hover:bg-gray-50 shadow-sm transition-colors" title="Статистика">
+            <BarChart2 size={20} />
+          </Link>
+          <Link href="/settings" className="p-2.5 bg-white border rounded-xl text-gray-600 hover:bg-gray-50 shadow-sm transition-colors" title="Настройки">
+            <Settings size={20} />
+          </Link>
           <button onClick={openCreateModal} className="hidden md:flex items-center gap-2 bg-black text-white px-5 py-2.5 rounded-xl hover:bg-gray-800 shadow-md transition-transform active:scale-95 font-medium">
             <Plus size={18} /> Запланировать
           </button>
