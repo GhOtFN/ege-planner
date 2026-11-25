@@ -1,4 +1,5 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from app.bot.bot import send_notification, send_smart_reminders
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from sqlalchemy import select, func
@@ -74,3 +75,4 @@ async def check_reminders():
         await db.commit()
 
 scheduler.add_job(check_reminders, "interval", minutes=1)
+scheduler.add_job(send_smart_reminders, "cron", hour=10, minute=0)
