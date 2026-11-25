@@ -219,7 +219,12 @@ export function Calendar() {
                     
                     <div className="flex justify-between items-center mt-1">
                       <div className="text-[11px] text-gray-400">{t.duration_min} мин</div>
-                      {t.notes && <StickyNote size={12} className="text-amber-400" title={t.notes} />}
+                      {/* Исправлена ошибка TypeScript с title */}
+                      {t.notes && (
+                        <span title={t.notes}>
+                          <StickyNote size={12} className="text-amber-400" />
+                        </span>
+                      )}
                     </div>
                   </motion.div>
                 ))}
