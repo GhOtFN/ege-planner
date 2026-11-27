@@ -1,6 +1,7 @@
 from app.models import ActivityEvent
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from uuid import UUID
 
 async def log_action(
     request: Request, db: AsyncSession, action: str,
@@ -14,14 +15,22 @@ async def log_action(
     ip = request.client.host if request.client else None
 
     if not actor_id:
-        return # Не логируем, если нет контекста пользователя
+        return
+
+    # Конвертируем строку в UUID, если она передана (иначе SQLAlchemy упадет с ошибкой)
+    final_entity_id = None
+    if entity_id:
+        try:
+            final_entity_id = UUID(str(entity_id))
+        except ValueError:
+            pass
 
     event = ActivityEvent(
         actor_id=actor_id, 
         effective_user_id=effective_user_id,
         action=action, 
         entity_type=entity_type, 
-        entity_id=entity_id,
+        entity_id=final_entity_id, # <--- ИСПОЛЬЗУЕМ КОНВЕРТИРОВАННЫЙ UUID
         before_state=before_state, 
         after_state=after_state,
         is_impersonation=is_impersonation, 
@@ -29,4 +38,3 @@ async def log_action(
         user_agent=request.headers.get("User-Agent")
     )
     db.add(event)
-    # Коммит делать не будем, он произойдет в самом эндпоинте
