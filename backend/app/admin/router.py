@@ -10,6 +10,10 @@ from app.auth.deps import require_admin, require_superadmin
 from app.auth.jwt import create_access_token
 from app.schemas import AdminActionRequest
 from app.activity.utils import log_action
+from app.models import BotMessage
+from app.schemas import AdminPushReq, AdminTelegramReq
+from app.bot.bot import bot
+from app.scheduler import send_push_to_user
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -96,4 +100,29 @@ async def revoke_admin(user_id: UUID, data: AdminActionRequest, request: Request
     target.role = "user"
     await log_action(request, db, "ADMIN_REVOKE", entity_id=str(target.id))
     await db.commit()
+    return {"ok": True}
+@router.get("/bot-messages/{user_id}")
+async def get_bot_messages(user_id: UUID, current: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    res = await db.execute(
+        select(BotMessage).where(BotMessage.user_id == user_id)
+        .order_by(BotMessage.created_at.asc()).limit(300)
+    )
+    return [{"id": str(m.id), "direction": m.direction, "text": m.text, "created_at": m.created_at.isoformat()} for m in res.scalars().all()]
+
+@router.post("/send-push/{user_id}")
+async def admin_send_push(user_id: UUID, data: AdminPushReq, current: User = Depends(require_admin)):
+    await send_push_to_user(user_id, data.title, data.body)
+    return {"ok": True}
+
+@router.post("/send-telegram/{user_id}")
+async def admin_send_telegram(user_id: UUID, data: AdminTelegramReq, current: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    target = await db.get(User, user_id)
+    if not target or not target.telegram_id:
+        raise HTTPException(400, "У пользователя не привязан Telegram")
+    try:
+        await bot.send_message(target.telegram_id, data.text)
+        db.add(BotMessage(user_id=user_id, telegram_id=target.telegram_id, direction="out", text=f"[Админ] {data.text}"))
+        await db.commit()
+    except Exception as e:
+        raise HTTPException(500, f"Ошибка: {e}")
     return {"ok": True}
