@@ -53,7 +53,8 @@ class TaskCreate(BaseModel):
     notes: str | None = None
     recurrence_rule: str | None = None
     is_deadline: bool = False
-
+    reminder_offsets: list[int] = []
+    
 class TaskUpdate(BaseModel):
     title: str | None = None
     start_at: datetime | None = None
