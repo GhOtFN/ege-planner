@@ -3,16 +3,17 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from datetime import datetime, timezone, timedelta, date
+from zoneinfo import ZoneInfo
 from app.db import get_db
 from app.models import Task, User, Reminder, Subject, MockExam
-from app.schemas import TaskCreate, TaskUpdate, MockExamCreate
+from app.schemas import TaskCreate, TaskUpdate, MockExamCreate, ApplyTemplateRequest
 from app.auth.deps import get_current_user, forbid_impersonation
 from app.activity.utils import log_action
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 # ==========================================
-# 1. УПРАВЛЕНИЕ ЗАДАЧАМИ (Создание, чтение, обновление, удаление)
+# 1. УПРАВЛЕНИЕ ЗАДАЧАМИ
 # ==========================================
 
 @router.post("/")
@@ -30,16 +31,18 @@ async def create_task(
         duration_min=data.duration_min, 
         subject_id=data.subject_id,
         notes=data.notes,
-        recurrence_rule=data.recurrence_rule,
+        recurrence_rule=data.recurrence_rule if hasattr(data, 'recurrence_rule') else None,
         is_deadline=data.is_deadline
     )
     db.add(task)
     await db.flush()
 
-    # Создаем напоминание только для обычных задач (не для дедлайнов)
+    # Создаем несколько напоминаний (если это не дедлайн)
     if not data.is_deadline:
-        reminder = Reminder(task_id=task.id, offset_min=current.notification_offset, channel="telegram")
-        db.add(reminder)
+        offsets = data.reminder_offsets if data.reminder_offsets else [current.notification_offset]
+        for off in offsets:
+            reminder = Reminder(task_id=task.id, offset_min=off, channel="telegram")
+            db.add(reminder)
         
     await log_action(request, db, "TASK_CREATE", entity_type="task", entity_id=str(task.id))
     await db.commit()
@@ -84,16 +87,15 @@ async def update_task(
     if data.notes is not None: task.notes = data.notes
     
     # === ЛОГИКА СТРИКА (Огонька) ===
-    # Если задачу только что отметили выполненной
     if data.status == "done" and old_status != "done":
         today = date.today()
         if current.last_active_date == today:
-            pass # Уже занимались сегодня, ничего не меняем
+            pass # Уже занимались сегодня
         elif current.last_active_date == today - timedelta(days=1):
             current.streak_days += 1 # Продолжаем серию
             current.last_active_date = today
         else:
-            current.streak_days = 1 # Начинаем новую серию
+            current.streak_days = 1 # Начинаем новую
             current.last_active_date = today
 
     await log_action(request, db, "TASK_UPDATE", entity_type="task", entity_id=str(task.id))
@@ -117,9 +119,56 @@ async def delete_task(
     await db.commit()
     return {"ok": True}
 
+# ==========================================
+# 2. ШАБЛОНЫ РАСПИСАНИЯ (Календарь)
+# ==========================================
+
+@router.post("/apply-template")
+async def apply_template(
+    data: ApplyTemplateRequest, 
+    current: User = Depends(get_current_user), 
+    db: AsyncSession = Depends(get_db)
+):
+    try: 
+        tz = ZoneInfo(current.timezone or "Europe/Moscow")
+    except: 
+        tz = ZoneInfo("Europe/Moscow")
+    
+    now_local = datetime.now(tz)
+    # Находим понедельник текущей недели
+    monday = now_local - timedelta(days=now_local.weekday())
+    monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    created = 0
+    for week in range(data.weeks):
+        for slot in data.slots:
+            # Вычисляем дату и время для слота
+            target_local = (monday + timedelta(days=week*7 + slot.day_of_week)).replace(hour=slot.hour)
+            target_utc = target_local.astimezone(timezone.utc)
+            
+            # Не создаем в прошлом
+            if target_utc < datetime.now(timezone.utc): 
+                continue
+            
+            task = Task(
+                user_id=current.id, 
+                subject_id=slot.subject_id,
+                title="Занятие", 
+                start_at=target_utc, 
+                duration_min=slot.duration_min
+            )
+            db.add(task)
+            await db.flush()
+            
+            # Базовое напоминание
+            db.add(Reminder(task_id=task.id, offset_min=current.notification_offset))
+            created += 1
+    
+    await db.commit()
+    return {"ok": True, "created": created}
 
 # ==========================================
-# 2. ПРОБНЫЕ ЭКЗАМЕНЫ (Mock Exams)
+# 3. ПРОБНЫЕ ЭКЗАМЕНЫ (Mock Exams)
 # ==========================================
 
 @router.post("/mock-exams")
@@ -160,13 +209,11 @@ async def get_mock_exams(
         } for e, s_name in res.all()
     ]
 
-
 # ==========================================
-# 3. СТАТИСТИКА И СРАВНЕНИЕ (Для сайта и Share-ссылки)
+# 4. СТАТИСТИКА
 # ==========================================
 
 async def _build_stats(user_id: UUID, period: str, db: AsyncSession):
-    # Базовый запрос
     query = select(Subject.name, Subject.color, func.sum(Task.duration_min).label("total_minutes"))
     
     if period == "day":
@@ -182,8 +229,7 @@ async def _build_stats(user_id: UUID, period: str, db: AsyncSession):
     stats = result.all()
     total_user_minutes = sum([s.total_minutes for s in stats]) if stats else 0
     
-    # === АНОНИМНОЕ СРАВНЕНИЕ (Процентиль) ===
-    # Считаем, сколько всего минут потратили все пользователи за этот период
+    # Анонимное сравнение
     all_users_query = select(func.sum(Task.duration_min)).where(
         Task.status == "done",
         Task.start_at >= func.now() - func.make_interval(0, 0, 0, 7 if period == 'week' else 30)
@@ -191,8 +237,6 @@ async def _build_stats(user_id: UUID, period: str, db: AsyncSession):
     total_all_users = await db.execute(all_users_query)
     global_minutes = total_all_users.scalar() or 1
     
-    # Вычисляем, какой процент от общего времени занимает этот пользователь
-    # (Ограничиваем сверху 99%, чтобы не было 100%, если он один)
     if total_user_minutes == 0:
         percentile = 0
     else:
@@ -214,54 +258,3 @@ async def get_stats(
     db: AsyncSession = Depends(get_db)
 ):
     return await _build_stats(current.id, period, db)
-    
-@router.post("/generate-template")
-async def generate_template(
-    template: str, 
-    current: User = Depends(get_current_user), 
-    db: AsyncSession = Depends(get_db)
-):
-    # Получаем все предметы пользователя
-    subs_res = await db.execute(select(Subject).where(Subject.user_id == current.id))
-    subjects = subs_res.scalars().all()
-    if not subjects:
-        raise HTTPException(400, "Сначала добавьте предметы в настройках")
-
-    # Настройки шаблона: по сколько часов в день и сколько дней в неделю
-    if template == "intensive": # Интенсив: каждый день по 3 часа
-        days_of_week = [0, 1, 2, 3, 4, 5, 6] 
-        hours_per_day = 3
-    else: # Стандарт: Пн, Ср, Пт по 2 часа
-        days_of_week = [0, 2, 4]
-        hours_per_day = 2
-
-    now = datetime.now(timezone.utc)
-    created_count = 0
-
-    # Генерируем расписание на 4 недели вперед
-    for week in range(4):
-        for day_idx in days_of_week:
-            # Вычисляем дату
-            target_date = now + timedelta(days=(week * 7 + day_idx))
-            start_time = target_date.replace(hour=16, minute=0, second=0, microsecond=0) # Начинаем в 16:00
-            
-            # Распределяем предметы по дням
-            subject = subjects[created_count % len(subjects)]
-            
-            task = Task(
-                user_id=current.id,
-                subject_id=subject.id,
-                title=f"{subject.name} (Автоплан)",
-                start_at=start_time,
-                duration_min=hours_per_day * 60,
-                status="planned"
-            )
-            db.add(task)
-            await db.flush()
-            
-            # Добавляем напоминание
-            db.add(Reminder(task_id=task.id, offset_min=current.notification_offset))
-            created_count += 1
-
-    await db.commit()
-    return {"ok": True, "created": created_count}
