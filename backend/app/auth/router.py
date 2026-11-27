@@ -5,7 +5,10 @@ from passlib.context import CryptContext
 from datetime import datetime, timezone, timedelta
 from app.db import get_db
 from app.models import User, Session, TelegramLinkCode, PushSubscription
-from app.schemas import UserRegister, UserLogin, TokenResponse, RefreshRequest, UserUpdate, TelegramLinkRequest, PasswordChange, PushSubscriptionCreate
+from app.schemas import (
+    UserRegister, UserLogin, TokenResponse, RefreshRequest, 
+    UserUpdate, TelegramLinkRequest, PasswordChange, PushSubscriptionCreate
+)
 from app.auth.jwt import create_access_token, create_refresh_token, decode_refresh
 from app.auth.deps import get_current_user
 from app.bot.bot import bot, send_notification
@@ -47,7 +50,11 @@ async def register(data: UserRegister, request: Request, db: AsyncSession = Depe
     await log_action(request, db, "USER_REGISTER")
     await db.commit()
 
-    return TokenResponse(access_token=access, refresh_token=refresh, user={"id": str(user.id), "email": user.email, "role": user.role})
+    return TokenResponse(
+        access_token=access, 
+        refresh_token=refresh, 
+        user={"id": str(user.id), "email": user.email, "role": user.role}
+    )
 
 @router.post("/login", response_model=TokenResponse)
 async def login(data: UserLogin, request: Request, db: AsyncSession = Depends(get_db)):
@@ -73,7 +80,11 @@ async def login(data: UserLogin, request: Request, db: AsyncSession = Depends(ge
     await log_action(request, db, "USER_LOGIN")
     await db.commit()
 
-    return TokenResponse(access_token=access, refresh_token=refresh, user={"id": str(user.id), "email": user.email, "role": user.role})
+    return TokenResponse(
+        access_token=access, 
+        refresh_token=refresh, 
+        user={"id": str(user.id), "email": user.email, "role": user.role}
+    )
 
 @router.post("/refresh")
 async def refresh_token(data: RefreshRequest, request: Request, db: AsyncSession = Depends(get_db)):
@@ -117,8 +128,8 @@ async def me(current: User = Depends(get_current_user)):
         "notification_offset": current.notification_offset,
         "share_token": current.share_token,
         "timezone": current.timezone,
-        "streak_days": current.streak_days,   # ВАЖНО
-        "exam_dates": current.exam_dates or {},  # ВАЖНО
+        "streak_days": current.streak_days,
+        "exam_dates": current.exam_dates or {},
     }
 
 @router.patch("/me")
@@ -127,6 +138,9 @@ async def update_me(data: UserUpdate, request: Request, current: User = Depends(
         current.notification_offset = data.notification_offset
     if data.timezone is not None:
         current.timezone = data.timezone
+    if data.exam_dates is not None:
+        current.exam_dates = data.exam_dates
+        
     await log_action(request, db, "SETTINGS_UPDATE")
     await db.commit()
     return {"ok": True}
@@ -222,7 +236,6 @@ async def test_push(current: User = Depends(get_current_user), db: AsyncSession 
         from pywebpush import webpush, WebPushException
         import json
         
-        # Получаем все устройства, привязанные к пользователю
         res = await db.execute(select(PushSubscription).where(PushSubscription.user_id == current.id))
         subs = res.scalars().all()
         
@@ -230,8 +243,6 @@ async def test_push(current: User = Depends(get_current_user), db: AsyncSession 
             raise HTTPException(400, "Нет активных подписок. Разрешите уведомления в настройках.")
         
         sent = 0
-        errors = []
-        
         for sub in subs:
             try:
                 webpush(
@@ -242,19 +253,16 @@ async def test_push(current: User = Depends(get_current_user), db: AsyncSession 
                 )
                 sent += 1
             except WebPushException as e:
-                # Если Apple/Google говорят, что токен устарел или невалиден (410, 404, 401)
+                # Удаляем мертвые токены
                 if e.response and e.response.status_code in [401, 403, 404, 410]:
-                    await db.delete(sub) # Автоматически удаляем мертвое устройство
-                    errors.append("Одно устройство отключено (токен устарел)")
-                else:
-                    errors.append(str(e))
-            except Exception as e:
-                errors.append(str(e))
+                    await db.delete(sub)
+            except Exception:
+                pass
         
-        await db.commit() # Сохраняем удаление мертвых токенов
+        await db.commit()
         
         if sent == 0:
-            raise HTTPException(400, f"Не удалось отправить. Причины: {'; '.join(errors)}")
+            raise HTTPException(400, "Не удалось отправить на устройства (токены устарели). Попробуйте переподключить Push.")
             
         return {"ok": True, "sent": sent}
     except ImportError:
