@@ -167,10 +167,13 @@ export function Calendar() {
           const isToday = isSameDay(day, new Date());
           return (
             <div key={i} className={`bg-white border rounded-2xl p-3 md:p-2 min-h-[100px] md:min-h-[450px] shadow-sm flex flex-col ${isToday ? "ring-2 ring-blue-500 shadow-md" : ""}`}>
+              
+              {/* ЗДЕСЬ ИЗМЕНЕНЫ ДНИ НЕДЕЛИ (capitalize + EEEE) */}
               <div className={`text-center mb-2 pb-2 border-b ${isToday ? "text-blue-600 font-bold" : "text-gray-600"}`}>
-                <div className="text-xs uppercase">{format(day, "eee", { locale: ru })}</div>
+                <div className="text-[10px] md:text-xs capitalize">{format(day, "EEEE", { locale: ru })}</div>
                 <div className="text-2xl">{format(day, "d")}</div>
               </div>
+
               <div className="space-y-2 flex-1">
                 {dayTasks.map(t => (
                   <motion.div
@@ -270,7 +273,6 @@ export function Calendar() {
 
       {renderDays()}
 
-      {/* Плавающая кнопка добавления (через Portal — не улетает при скролле) */}
       {mounted && createPortal(
         <button
           onClick={openCreateModal}
@@ -281,7 +283,6 @@ export function Calendar() {
         document.body
       )}
 
-      {/* Модалка удаления — через Portal */}
       {mounted && createPortal(
         <AnimatePresence>
           {confirmDelete && (
@@ -300,7 +301,6 @@ export function Calendar() {
         document.body
       )}
 
-      {/* Модалка создания/редактирования — через Portal */}
       {mounted && createPortal(
         <AnimatePresence>
           {isModalOpen && (
