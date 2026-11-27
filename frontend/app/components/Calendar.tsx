@@ -25,11 +25,13 @@ type Task = {
   recurrence_rule?: string | null;
 };
 
+// ДОБАВЛЕНО "За 1 мин"
 const REMINDER_OPTIONS = [
   { v: 1440, l: "За день" },
   { v: 120, l: "За 2 ч" },
   { v: 30, l: "За 30 мин" },
   { v: 10, l: "За 10 мин" },
+  { v: 1, l: "За 1 мин" },
 ];
 
 export function Calendar() {
@@ -168,7 +170,6 @@ export function Calendar() {
           return (
             <div key={i} className={`bg-white border rounded-2xl p-3 md:p-2 min-h-[100px] md:min-h-[450px] shadow-sm flex flex-col ${isToday ? "ring-2 ring-blue-500 shadow-md" : ""}`}>
               
-              {/* ЗДЕСЬ ИЗМЕНЕНЫ ДНИ НЕДЕЛИ (capitalize + EEEE) */}
               <div className={`text-center mb-2 pb-2 border-b ${isToday ? "text-blue-600 font-bold" : "text-gray-600"}`}>
                 <div className="text-[10px] md:text-xs capitalize">{format(day, "EEEE", { locale: ru })}</div>
                 <div className="text-2xl">{format(day, "d")}</div>
