@@ -7,8 +7,8 @@ export const metadata: Metadata = {
   title: "ЕГЭ-Планер",
   manifest: "/manifest.json",
   icons: {
-    icon: "/icon-192.png",
-    apple: "/apple-icon.png", // Иконка для iPhone
+    icon: "/plan.png",
+    apple: "/plan.png", // Иконка для iPhone
   },
   appleWebApp: { 
     capable: true, 
