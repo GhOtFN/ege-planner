@@ -10,8 +10,8 @@ self.addEventListener('push', function(event) {
   }
   const options = {
     body: data.body,
-    icon: 'https://cdn-icons-png.flaticon.com/512/3233/3233178.png',
-    badge: 'https://cdn-icons-png.flaticon.com/512/3233/3233178.png',
+    icon: '/plan.png',  /* <--- ВАША НОВАЯ ИКОНКА */
+    badge: '/plan.png', /* <--- ВАША НОВАЯ ИКОНКА */
     vibrate: [100, 50, 100],
     data: { url: '/' }
   };
