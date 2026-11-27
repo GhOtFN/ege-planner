@@ -117,6 +117,8 @@ async def me(current: User = Depends(get_current_user)):
         "notification_offset": current.notification_offset,
         "share_token": current.share_token,
         "timezone": current.timezone,
+        "streak_days": current.streak_days,   # ВАЖНО
+        "exam_dates": current.exam_dates or {},  # ВАЖНО
     }
 
 @router.patch("/me")
