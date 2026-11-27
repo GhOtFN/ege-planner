@@ -1,11 +1,20 @@
 import "./globals.css";
 import { AuthProvider } from "./providers/AuthProvider";
 import { ImpersonationBanner } from "./components/ImpersonationBanner";
+import type { Metadata } from "next";
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "ЕГЭ-Планер",
   manifest: "/manifest.json",
-  appleWebApp: { capable: true, statusBarStyle: "default", title: "Планер" },
+  icons: {
+    icon: "/icon-192.png",
+    apple: "/apple-icon.png", // Иконка для iPhone
+  },
+  appleWebApp: { 
+    capable: true, 
+    statusBarStyle: "default", 
+    title: "Планер" 
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
