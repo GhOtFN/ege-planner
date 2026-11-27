@@ -77,3 +77,33 @@ class PushSubscriptionKeys(BaseModel):
 class PushSubscriptionCreate(BaseModel):
     endpoint: str
     keys: PushSubscriptionKeys
+
+# В конец
+class ReminderOffsets(BaseModel):
+    offsets: list[int] = []
+
+class TaskCreateV2(BaseModel):
+    title: str
+    start_at: datetime
+    duration_min: int = 60
+    subject_id: UUID | None = None
+    notes: str | None = None
+    is_deadline: bool = False
+    reminder_offsets: list[int] = []  # Список интервалов в минутах [1440, 120, 30]
+
+class TemplateSlot(BaseModel):
+    day_of_week: int  # 0=Пн..6=Вс
+    hour: int
+    subject_id: UUID
+    duration_min: int
+
+class ApplyTemplateRequest(BaseModel):
+    slots: list[TemplateSlot]
+    weeks: int = 4
+
+class AdminPushReq(BaseModel):
+    title: str
+    body: str
+
+class AdminTelegramReq(BaseModel):
+    text: str
