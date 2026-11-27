@@ -8,6 +8,8 @@ import { useAuth } from "../providers/AuthProvider";
 import { AdminShield } from "./AdminShield";
 import { motion, AnimatePresence } from "framer-motion";
 import confetti from "canvas-confetti";
+import { createPortal } from "react-dom";
+import { useState as useStateAlias } from "react"; // на случай если не нужно, оставим
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
