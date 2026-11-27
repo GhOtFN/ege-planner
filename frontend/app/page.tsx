@@ -4,7 +4,6 @@ import { Calendar } from "./components/Calendar";
 import { useAuth } from "./providers/AuthProvider";
 import { Flame, Target } from "lucide-react";
 import { differenceInDays, parseISO } from "date-fns";
-import { motion } from "framer-motion";
 
 export default function Home() {
   const { user } = useAuth();
@@ -14,24 +13,15 @@ export default function Home() {
   useEffect(() => {
     if (user && (user as any).exam_dates) {
       const dates = (user as any).exam_dates;
-      let minDays = Infinity;
-      let subj = "";
-      
+      let minDays = Infinity; let subj = "";
       Object.entries(dates).forEach(([name, dateStr]) => {
         if (!dateStr) return;
         try {
           const d = differenceInDays(parseISO(dateStr as string), new Date());
-          if (d >= 0 && d < minDays) { 
-            minDays = d; 
-            subj = name; 
-          }
+          if (d >= 0 && d < minDays) { minDays = d; subj = name; }
         } catch (e) {}
       });
-      
-      if (minDays !== Infinity) { 
-        setDaysLeft(minDays); 
-        setNearestSubj(subj); 
-      }
+      if (minDays !== Infinity) { setDaysLeft(minDays); setNearestSubj(subj); }
     }
   }, [user]);
 
@@ -53,10 +43,8 @@ export default function Home() {
           )}
         </div>
       </div>
-
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-        <Calendar />
-      </motion.div>
+      {/* Убрали motion.div с transform, чтобы fixed-элементы не улетали */}
+      <Calendar />
     </main>
   );
 }
