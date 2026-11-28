@@ -25,7 +25,7 @@ type Task = {
   recurrence_rule?: string | null;
 };
 
-// Для объединенных задач добавим время окончания и массив ID
+// Тип для объединенной задачи
 type GroupedTask = Task & { end_time: string; ids: string[] };
 
 const REMINDER_OPTIONS = [
@@ -44,6 +44,7 @@ export function Calendar() {
   const [filterSubject, setFilterSubject] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
+  // Состояния модалки
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [newSubjectId, setNewSubjectId] = useState("");
@@ -112,12 +113,12 @@ export function Calendar() {
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ["#3B82F6", "#10B981", "#F59E0B"] });
     }
     
-    // Оптимистично обновляем ВСЕ задачи в группе
+    // Оптимистичное обновление всех задач в группе
     setTasks(tasks.map(t => groupedTask.ids.includes(t.id) ? { ...t, status: newStatus } : t));
     
     const token = getToken();
-    // Отправляем запросы на обновление всех задач в группе
     let lastStreak = undefined;
+    
     for (const id of groupedTask.ids) {
       const res = await fetch(`${API_URL}/tasks/${id}`, {
         method: "PUT",
@@ -171,7 +172,7 @@ export function Calendar() {
   const getSubjectColor = (id: string | null) => subjects.find(s => s.id === id)?.color || "#9CA3AF";
   const getSubjectName = (id: string | null) => subjects.find(s => s.id === id)?.name || "Занятие";
 
-  // ЛОГИКА ОБЪЕДИНЕНИЯ ЗАДАЧ
+  // Группировка задач (склеиваем, если идут подряд)
   const groupTasks = (dayTasks: Task[]): GroupedTask[] => {
     const sorted = [...dayTasks].sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());
     const grouped: GroupedTask[] = [];
@@ -188,9 +189,8 @@ export function Calendar() {
       const last = grouped[grouped.length - 1];
       if (last && !last.is_deadline && last.subject_id === task.subject_id && last.status === task.status) {
         const lastEnd = new Date(last.end_time);
-        // Если перерыв между ними меньше 1 минуты (т.е. идут подряд)
+        // Склеиваем, если перерыв меньше 1 минуты
         if (Math.abs(start.getTime() - lastEnd.getTime()) <= 60000) {
-          // Объединяем: увеличиваем время окончания и длительность, добавляем ID
           last.end_time = end.toISOString();
           last.duration_min += task.duration_min;
           last.ids.push(task.id);
@@ -236,7 +236,6 @@ export function Calendar() {
                     <div className="font-medium flex justify-between items-start">
                       <span className={`flex items-center gap-1 ${t.status === "done" ? "line-through text-gray-500" : "text-gray-700"}`}>
                         {t.is_deadline ? <AlertCircle size={14} className="text-red-500" /> : null}
-                        {/* Показываем диапазон времени, если это группа */}
                         {format(new Date(t.start_at), "HH:mm")} 
                         {t.ids.length > 1 ? ` - ${format(new Date(t.end_time), "HH:mm")}` : ""}
                       </span>
@@ -268,26 +267,16 @@ export function Calendar() {
 
   return (
     <div className="p-4 max-w-7xl mx-auto relative">
-      {/* ... (Остальной код шапки, фильтров и модалок остается без изменений, как в предыдущем ответе) ... */}
-      
-      {/* Модалка удаления теперь принимает массив ID */}
-      {mounted && createPortal(
-        <AnimatePresence>
-          {confirmDeleteIds && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
-              <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white p-6 rounded-2xl w-full max-w-sm text-center shadow-2xl">
-                <h3 className="text-lg font-bold mb-2">Удалить занятие?</h3>
-                <p className="text-gray-500 mb-6 text-sm">{confirmDeleteIds.length > 1 ? "Будут удалены все объединенные занятия." : "Это действие нельзя отменить."}</p>
-                <div className="flex justify-center gap-3">
-                  <button onClick={() => setConfirmDeleteIds(null)} className="px-4 py-2 border rounded-xl hover:bg-gray-50 font-medium">Отмена</button>
-                  <button onClick={handleDeleteTask} className="px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 font-medium shadow-md">Удалить</button>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>,
-        document.body
-      )}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className={`fixed top-4 right-4 z-[200] px-5 py-3 rounded-xl shadow-lg text-white text-sm font-medium ${toast.type === "success" ? "bg-green-600" : "bg-red-600"}`}
+          >
+            {toast.msg}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-xl md:text-2xl font-bold text-gray-800">Мой план</h1>
@@ -344,7 +333,90 @@ export function Calendar() {
         document.body
       )}
 
-      {/* ... (Модалка создания задачи остается без изменений) ... */}
+      {mounted && createPortal(
+        <AnimatePresence>
+          {confirmDeleteIds && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
+              <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white p-6 rounded-2xl w-full max-w-sm text-center shadow-2xl">
+                <h3 className="text-lg font-bold mb-2">Удалить занятие?</h3>
+                <p className="text-gray-500 mb-6 text-sm">{confirmDeleteIds.length > 1 ? "Будут удалены все объединенные занятия." : "Это действие нельзя отменить."}</p>
+                <div className="flex justify-center gap-3">
+                  <button onClick={() => setConfirmDeleteIds(null)} className="px-4 py-2 border rounded-xl hover:bg-gray-50 font-medium">Отмена</button>
+                  <button onClick={handleDeleteTask} className="px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 font-medium shadow-md">Удалить</button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+
+      {mounted && createPortal(
+        <AnimatePresence>
+          {isModalOpen && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[100] backdrop-blur-sm overflow-y-auto">
+              <motion.form
+                initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+                onSubmit={handleSaveTask}
+                className="bg-white p-6 rounded-2xl w-full max-w-sm space-y-4 shadow-2xl my-auto"
+              >
+                <h2 className="text-xl font-bold text-gray-800">{editingTaskId ? "Редактировать" : "Новое занятие"}</h2>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase">Предмет</label>
+                  <select value={newSubjectId} onChange={e => setNewSubjectId(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50 text-sm font-medium mt-1">
+                    {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase">Время и дата</label>
+                  <input type="datetime-local" required value={newDate} onChange={e => setNewDate(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50 text-sm mt-1" />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase">Длительность (мин)</label>
+                  <input type="number" required value={newDuration} onChange={e => setNewDuration(Number(e.target.value))} className="w-full border p-3 rounded-xl bg-gray-50 text-sm mt-1" placeholder="Например: 60" />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase">Заметки</label>
+                  <textarea value={newNotes} onChange={e => setNewNotes(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50 text-sm h-20 mt-1 resize-none" placeholder="Например: решить №13-15" />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase">Напоминания</label>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {REMINDER_OPTIONS.map(o => (
+                      <button
+                        key={o.v}
+                        type="button"
+                        onClick={() => setReminderOffsets(prev => prev.includes(o.v) ? prev.filter(x => x !== o.v) : [...prev, o.v])}
+                        className={`px-3 py-1.5 rounded-xl text-xs border transition-colors ${reminderOffsets.includes(o.v) ? "bg-blue-600 text-white border-blue-600" : "bg-gray-50 text-gray-700 border-gray-200"}`}
+                      >
+                        {o.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2 pt-1">
+                  <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                    <input type="checkbox" checked={isDeadline} onChange={e => setIsDeadline(e.target.checked)} className="w-4 h-4 rounded text-red-600" />
+                    Это дедлайн (без напоминания)
+                  </label>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3">
+                  <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2.5 text-gray-600 hover:bg-gray-100 rounded-xl font-medium transition-colors">Отмена</button>
+                  <button type="submit" className="px-6 py-2.5 bg-blue-600 text-white rounded-xl shadow hover:bg-blue-700 font-medium transition-colors">Сохранить</button>
+                </div>
+              </motion.form>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }
