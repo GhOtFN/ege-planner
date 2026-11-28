@@ -23,7 +23,8 @@ class UserUpdate(BaseModel):
     notification_offset: int | None = None
     timezone: str | None = None
     exam_dates: dict | None = None
-
+    weekly_template: list | None = None
+    
 class PasswordChange(BaseModel):
     old_password: str
     new_password: str
