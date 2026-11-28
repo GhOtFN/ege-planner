@@ -4,7 +4,17 @@ import { usePathname } from "next/navigation";
 import { AuthScreen } from "../components/AuthScreen";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
-export type User = { id: string; email: string; role: string; telegram_id: number | null };
+
+
+export type User = { 
+  id: string; 
+  email: string; 
+  role: string; 
+  telegram_id: number | null;
+  streak_days?: number;
+  exam_dates?: Record<string, string>;
+  weekly_template?: any[]; // <--- ДОБАВИТЬ
+};
 
 const AuthContext = createContext<{ user: User | null; setUser: (u: User | null) => void }>({ user: null, setUser: () => {} });
 export const useAuth = () => useContext(AuthContext);
