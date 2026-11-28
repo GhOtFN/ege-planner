@@ -130,6 +130,7 @@ async def me(current: User = Depends(get_current_user)):
         "timezone": current.timezone,
         "streak_days": current.streak_days,
         "exam_dates": current.exam_dates or {},
+        "weekly_template": current.weekly_template or [], # <--- ВОЗВРАЩАЕМ ШАБЛОН
     }
 
 @router.patch("/me")
@@ -140,6 +141,8 @@ async def update_me(data: UserUpdate, request: Request, current: User = Depends(
         current.timezone = data.timezone
     if data.exam_dates is not None:
         current.exam_dates = data.exam_dates
+    if data.weekly_template is not None:
+        current.weekly_template = data.weekly_template # <--- СОХРАНЯЕМ ШАБЛОН
         
     await log_action(request, db, "SETTINGS_UPDATE")
     await db.commit()
