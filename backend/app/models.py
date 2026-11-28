@@ -24,6 +24,7 @@ class User(Base):
     streak_days: Mapped[int] = mapped_column(Integer, default=0)
     last_active_date: Mapped[date | None] = mapped_column(Date, nullable=True) # <--- ТЕПЕРЬ DATE ИМПОРТИРОВАН
     exam_dates: Mapped[dict | None] = mapped_column(JSON, default=dict)
+    weekly_template: Mapped[list | None] = mapped_column(JSON, default=list)
     
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
     __table_args__ = (CheckConstraint("role IN ('user','admin','superadmin')"),)
